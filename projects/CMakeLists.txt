@@ -14,6 +14,7 @@ endfunction(buildAllProjects)
 
 set (PROJECTS 
      basic_window
-     hello_world)
+     hello_world
+     d3d_initialization)
 
 buildAllProjects()

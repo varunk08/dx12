@@ -1,8 +1,27 @@
 #pragma comment(linker, "/subsystem:windows")
+
 #include <iostream>
 #include <Windows.h>
+#include <DirectXColors.h>
+
+#include "../common/BaseApp.h"
 
 using namespace std;
+using namespace DirectX;
+
+class InitD3dApp : public BaseApp
+{
+public:
+    InitD3dApp(HINSTANCE hInstance);
+    ~InitD3dApp();
+
+    virtual bool Initialize() override;
+private:
+    virtual void OnResize() override;
+    virtual void Update(const BaseTimer& timer) override;
+    virtual void Draw(const BaseTimer& timer) override;
+
+};
 
 LRESULT CALLBACK WndProc(HWND hWnd,
                          UINT msg,
@@ -51,7 +70,7 @@ bool InitWindowsApp(HINSTANCE hInstance,
     result = RegisterClassW(&wc);
     if (result == true) {
         hWnd = CreateWindowW(L"BasicWndClass",
-                             L"Win32Basic",
+                             L"d3d initialization",
                              WS_OVERLAPPEDWINDOW,
                              CW_USEDEFAULT,
                              CW_USEDEFAULT,
@@ -103,16 +122,29 @@ int Run(HWND& hWnd)
     return static_cast<int>(msg.wParam);
 }
 
+InitD3dApp::InitD3dApp(HINSTANCE hInstance)
+    : BaseApp(hInstance)
+{
+}
+
 int WINAPI WinMain(HINSTANCE hInstance,
                    HINSTANCE hPrevInstance,
                    PSTR      pCmdLine,
                    int       nShowCmd)
 {
+    InitD3dApp theApp(hInstance);
     int retCode = 0;
-    HWND hMainWnd = 0;
-    if (InitWindowsApp(hInstance, nShowCmd, hMainWnd) == true) {
-        Run(hMainWnd);
+
+    if (theApp.Initialize() == true)
+    {
+        retCode = theApp.Run();
+    }
+    else
+    {
+        cout << "Error Initializing the app" << endl;
     }
 
     return retCode;
 }
+
+
