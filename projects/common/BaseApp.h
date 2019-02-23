@@ -39,6 +39,7 @@ protected:
     void FlushCommandQueue();
 
     static BaseApp* mApp;
+
     HINSTANCE mhAppInst = nullptr;
 private:
     

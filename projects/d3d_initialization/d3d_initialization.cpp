@@ -146,5 +146,3 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
     return retCode;
 }
-
-

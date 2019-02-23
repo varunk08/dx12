@@ -1,9 +1,11 @@
 function(buildProject PROJECT_NAME)
     SET(PROJECT_FOLDER ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME})
     message(STATUS "Generating project file for example in ${PROJECT_FOLDER}")
-    SET(SOURCE ${SOURCE} ${PROJECT_FOLDER}/*.cpp)
+    include_directories(PUBLIC ${PROJECT_FOLDER}/../common)
+    SET(SOURCE ${SOURCE} ${PROJECT_FOLDER}/*.cpp )
+    SET(COMMON ${PROJECT_FOLDER}/../common/BaseApp.cpp)
     SET(MAIN_CPP ${PROJECT_FOLDER}/${PROJECT_NAME}.cpp)
-    add_executable(${PROJECT_NAME} ${MAIN_CPP})
+    add_executable(${PROJECT_NAME} ${MAIN_CPP} ${COMMON})
 endfunction(buildProject)
 
 function(buildAllProjects)
@@ -17,4 +19,4 @@ set (PROJECTS
      hello_world
      d3d_initialization)
 
-buildAllProjects()
+buildAllProjects() 

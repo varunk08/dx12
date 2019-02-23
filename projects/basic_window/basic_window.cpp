@@ -110,6 +110,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 {
     int retCode = 0;
     HWND hMainWnd = 0;
+    
     if (InitWindowsApp(hInstance, nShowCmd, hMainWnd) == true) {
         Run(hMainWnd);
     }
