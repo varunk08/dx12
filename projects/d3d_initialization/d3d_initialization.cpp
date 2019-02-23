@@ -127,6 +127,27 @@ InitD3dApp::InitD3dApp(HINSTANCE hInstance)
 {
 }
 
+InitD3dApp::~InitD3dApp()
+{
+}
+
+bool InitD3dApp::Initialize()
+{
+    return false;
+}
+
+void InitD3dApp::OnResize()
+{
+}
+
+void InitD3dApp::Update(const BaseTimer & timer)
+{
+}
+
+void InitD3dApp::Draw(const BaseTimer & timer)
+{
+}
+
 int WINAPI WinMain(HINSTANCE hInstance,
                    HINSTANCE hPrevInstance,
                    PSTR      pCmdLine,
