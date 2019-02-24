@@ -15,7 +15,7 @@ LRESULT CALLBACK WndProc(HWND hWnd,
     case WM_LBUTTONDOWN:
         MessageBoxW(0, L"Hello World", L"Hello", MB_OK);
         break;
-    case WM_KEYDOWN:
+    case WM_KEYDOWN: 
         if (wParam == VK_ESCAPE)
         {
             DestroyWindow(hWnd);
@@ -41,6 +41,8 @@ bool InitWindowsApp(HINSTANCE hInstance,
     WNDCLASSW wc = {};
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = WndProc;
+    wc.cbClsExtra = 0;
+    wc.cbWndExtra = 0;
     wc.hInstance = hInstance;
     wc.hIcon = LoadIcon(0, IDI_APPLICATION);
     wc.hCursor = LoadCursor(0, IDC_ARROW);
@@ -49,6 +51,7 @@ bool InitWindowsApp(HINSTANCE hInstance,
     wc.lpszClassName = L"BasicWndClass";
 
     result = RegisterClassW(&wc);
+
     if (result == true) {
         hWnd = CreateWindowW(L"BasicWndClass",
                              L"Win32Basic",

@@ -41,6 +41,7 @@ protected:
     static BaseApp* mApp;
 
     HINSTANCE mhAppInst = nullptr;
+    HWND      mhMainWnd = nullptr; // main window handle
 private:
     
 };
