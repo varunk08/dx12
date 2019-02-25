@@ -135,5 +135,45 @@ bool BaseApp::InitMainWindow()
 
 bool BaseApp::InitDirect3D()
 {
-    return true;
+    bool ret = true;
+
+    HRESULT result = CreateDXGIFactory(IID_PPV_ARGS(&m_dxgiFactory));
+
+    if (SUCCEEDED(result))
+    {
+        UINT i = 0;
+        IDXGIAdapter* pAdapter = nullptr;
+        std::vector<IDXGIAdapter*> adapterList;
+        
+        std::wstring text = L"Adapter(s):\n";
+        while (m_dxgiFactory->EnumAdapters(i, &pAdapter) != DXGI_ERROR_NOT_FOUND)
+        {
+            DXGI_ADAPTER_DESC desc;
+            pAdapter->GetDesc(&desc);
+
+            text += desc.Description;
+            text += L"\n";
+
+            //OutputDebugStringW(text.c_str());
+            adapterList.push_back(pAdapter);
+            ++i;
+        }
+        MessageBoxW(0, text.c_str(), 0, 0);
+
+        for (auto adp : adapterList)
+        {
+            if (adp)
+            {
+                adp->Release();
+                adp = nullptr;
+            }
+        }
+        
+    }
+    else
+    {
+        MessageBoxW(0, L"Dxgi factory create failed!", 0, 0);
+    }
+    
+    return ret;
 }

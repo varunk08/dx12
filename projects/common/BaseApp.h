@@ -4,6 +4,9 @@
 #include <wrl.h>
 #include <DirectXMath.h>
 
+#include <string>
+#include <vector>
+
 #include "BaseTimer.h"
 
 // Link necessary d3d12 libraries.
@@ -42,6 +45,8 @@ protected:
 
     HINSTANCE mhAppInst = nullptr;
     HWND      mhMainWnd = nullptr; // main window handle
+    Microsoft::WRL::ComPtr<IDXGIFactory4> m_dxgiFactory;
+
 private:
     
 };
