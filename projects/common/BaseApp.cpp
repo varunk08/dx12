@@ -141,34 +141,7 @@ bool BaseApp::InitDirect3D()
 
     if (SUCCEEDED(result))
     {
-        UINT i = 0;
-        IDXGIAdapter* pAdapter = nullptr;
-        std::vector<IDXGIAdapter*> adapterList;
-        
-        std::wstring text = L"Adapter(s):\n";
-        while (m_dxgiFactory->EnumAdapters(i, &pAdapter) != DXGI_ERROR_NOT_FOUND)
-        {
-            DXGI_ADAPTER_DESC desc;
-            pAdapter->GetDesc(&desc);
-
-            text += desc.Description;
-            text += L"\n";
-
-            //OutputDebugStringW(text.c_str());
-            adapterList.push_back(pAdapter);
-            ++i;
-        }
-        MessageBoxW(0, text.c_str(), 0, 0);
-
-        for (auto adp : adapterList)
-        {
-            if (adp)
-            {
-                adp->Release();
-                adp = nullptr;
-            }
-        }
-        
+        LogAdapters();
     }
     else
     {
@@ -176,4 +149,75 @@ bool BaseApp::InitDirect3D()
     }
     
     return ret;
+}
+
+void BaseApp::LogAdapters()
+{
+    UINT i = 0;
+    IDXGIAdapter* pAdapter = nullptr;
+    std::vector<IDXGIAdapter*> adapterList;
+
+    std::wstring text = L"***Adapter(s):\n";
+    while (m_dxgiFactory->EnumAdapters(i, &pAdapter) != DXGI_ERROR_NOT_FOUND)
+    {
+        DXGI_ADAPTER_DESC desc;
+        pAdapter->GetDesc(&desc);
+
+        text += desc.Description;
+        text += L"\n";
+
+        adapterList.push_back(pAdapter);
+        ++i;
+    }
+    //MessageBoxW(0, text.c_str(), 0, 0);
+    OutputDebugStringW(text.c_str());
+
+    for (auto pAdp : adapterList)
+    {
+        if (pAdp)
+        {
+
+            LogDisplays(pAdp);
+            util::ReleaseComObj(pAdp);
+        }
+    }
+}
+
+void BaseApp::LogDisplays(IDXGIAdapter* pAdapter)
+{
+    UINT i = 0;
+    IDXGIOutput* pOutput = nullptr;
+    while (pAdapter->EnumOutputs(i, &pOutput) != DXGI_ERROR_NOT_FOUND)
+    {
+        DXGI_OUTPUT_DESC desc;
+        pOutput->GetDesc(&desc);
+        std::wstring text = L"***Display: ";
+        text += desc.DeviceName;
+        text += L"\n";
+        OutputDebugStringW(text.c_str());
+        LogDisplayModes(pOutput, DXGI_FORMAT_B8G8R8A8_UNORM);
+        util::ReleaseComObj(pOutput);
+        ++i;
+    }
+}
+
+void BaseApp::LogDisplayModes(IDXGIOutput* pOutput, DXGI_FORMAT format)
+{
+    UINT count = 0;
+    UINT flags = 0;
+    pOutput->GetDisplayModeList(format, flags, &count, nullptr);
+    std::vector<DXGI_MODE_DESC> modeListVec(count);
+    pOutput->GetDisplayModeList(format, flags, &count, &modeListVec[0]);
+
+    for (auto& desc : modeListVec)
+    {
+        UINT n = desc.RefreshRate.Numerator;
+        UINT d = desc.RefreshRate.Denominator;
+        std::wstring text =
+            L"Width = " + std::to_wstring(desc.Width) + L" " +
+            L"Height = " + std::to_wstring(desc.Height) + L" " +
+            L"Refresh = " + std::to_wstring(n) + L"/" + std::to_wstring(d) +
+            L"\n";
+        OutputDebugStringW(text.c_str());
+    }
 }

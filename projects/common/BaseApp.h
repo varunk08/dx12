@@ -4,9 +4,11 @@
 #include <wrl.h>
 #include <DirectXMath.h>
 
+#include <iostream>
 #include <string>
 #include <vector>
 
+#include "BaseUtil.h"
 #include "BaseTimer.h"
 
 // Link necessary d3d12 libraries.
@@ -48,5 +50,7 @@ protected:
     Microsoft::WRL::ComPtr<IDXGIFactory4> m_dxgiFactory;
 
 private:
-    
+    void LogAdapters();
+    void LogDisplays(IDXGIAdapter* pAdapter);
+    void LogDisplayModes(IDXGIOutput* pOutput, DXGI_FORMAT format);
 };
