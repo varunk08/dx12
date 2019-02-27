@@ -48,6 +48,7 @@ protected:
     HINSTANCE mhAppInst = nullptr;
     HWND      mhMainWnd = nullptr; // main window handle
     Microsoft::WRL::ComPtr<IDXGIFactory4> m_dxgiFactory;
+    Microsoft::WRL::ComPtr<ID3D12Device> m_d3dDevice;
 
 private:
     void LogAdapters();

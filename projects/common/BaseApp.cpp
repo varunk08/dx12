@@ -142,6 +142,20 @@ bool BaseApp::InitDirect3D()
     if (SUCCEEDED(result))
     {
         LogAdapters();
+        // Try to create hardware device.
+        HRESULT hardwareResult = D3D12CreateDevice(
+            nullptr,             // default adapter
+            D3D_FEATURE_LEVEL_11_0,
+            IID_PPV_ARGS(&m_d3dDevice));
+
+        if (SUCCEEDED(hardwareResult))
+        {
+
+        }
+        else
+        {
+            MessageBoxW(0, L"Device create failed!", 0, 0);
+        }
     }
     else
     {
