@@ -176,7 +176,6 @@ void BaseApp::LogAdapters()
     {
         if (pAdp)
         {
-
             LogDisplays(pAdp);
             util::ReleaseComObj(pAdp);
         }
@@ -220,4 +219,19 @@ void BaseApp::LogDisplayModes(IDXGIOutput* pOutput, DXGI_FORMAT format)
             L"\n";
         OutputDebugStringW(text.c_str());
     }
+}
+
+void BaseApp::CheckFeatureLevels()
+{
+    D3D_FEATURE_LEVEL featureLevels[3] =
+    {
+        D3D_FEATURE_LEVEL_12_1,
+        D3D_FEATURE_LEVEL_12_0,
+        D3D_FEATURE_LEVEL_11_0
+    };
+
+    D3D12_FEATURE_DATA_FEATURE_LEVELS featureLevelsInfo;
+    featureLevelsInfo.NumFeatureLevels = 3;
+    featureLevelsInfo.pFeatureLevelsRequested = featureLevels;
+    // needs a device
 }

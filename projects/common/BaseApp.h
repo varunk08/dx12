@@ -53,4 +53,5 @@ private:
     void LogAdapters();
     void LogDisplays(IDXGIAdapter* pAdapter);
     void LogDisplayModes(IDXGIOutput* pOutput, DXGI_FORMAT format);
+    void CheckFeatureLevels();
 };
