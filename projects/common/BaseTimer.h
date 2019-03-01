@@ -1,27 +1,30 @@
-#ifndef BASETIMER_H
-#define BASETIMER_H
+#pragma once
+#ifndef VKD3D12_BASE_TIMER_H
+#define VKD3D12_BASE_TIMER_H
 
 class BaseTimer
 {
 public:
-    float TotalTime() const; 
-    float DeltaTime() const;
+    BaseTimer();
+
+    float TotalTimeInSecs() const;
+    float DeltaTimeInSecs() const;
 
     void Reset();
-    void Start();
     void Stop();
+    void Start();
     void Tick();
 private:
-    double mSecondsPerCount;
-    double mDeltaTime;
+    double m_secondsPerCount;
+    doube m_deltaTime;
 
-    __int64 mBaseTime;
-    __int64 mPausedTime;
-    __int64 mStopTime;
-    __int64 mPrevTime;
-    __int64 mCurrTime;
+    __int64 m_BaseTime;
+    __int64 m_PausedTime;
+    __int64 m_StopTime;
+    __int64 m_PrevTime;
+    __int64 m_CurrTime;
 
-    bool mStopped;
+    bool m_Stopped;
 };
 
-#endif // BASETIMER_H
+#endif // VKD3D12_BASE_TIMER_H
