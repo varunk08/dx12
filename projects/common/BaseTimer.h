@@ -16,7 +16,7 @@ public:
     void Tick();
 private:
     double m_secondsPerCount;
-    doube m_deltaTime;
+    double m_deltaTime;
 
     __int64 m_BaseTime;
     __int64 m_PausedTime;
