@@ -58,6 +58,12 @@ public:
     int LineNumber = -1;
 };
 
+inline std::wstring AnsiToWString(const std::string& str)
+{
+    WCHAR buffer[512];
+    MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, buffer, 512);
+    return std::wstring(buffer);
+}
 
 #ifndef ThrowIfFailed
 #define ThrowIfFailed(x)                                              \
