@@ -15,16 +15,18 @@ public:
     void Start();
     void Tick();
 private:
+    // Time in secs
     double m_secondsPerCount;
     double m_deltaTime;
 
-    __int64 m_BaseTime;
-    __int64 m_PausedTime;
-    __int64 m_StopTime;
-    __int64 m_PrevTime;
-    __int64 m_CurrTime;
+     // Time in counts obtained from QueryPerformanceCounter
+    __int64 m_baseTime;
+    __int64 m_pausedTime;
+    __int64 m_stopTime;
+    __int64 m_prevTime;
+    __int64 m_currTime;
 
-    bool m_Stopped;
+    bool m_stopped;
 };
 
 #endif // VKD3D12_BASE_TIMER_H
