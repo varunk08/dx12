@@ -18,9 +18,24 @@ BaseTimer::BaseTimer()
 
 float BaseTimer::TotalTimeInSecs() const
 {
+    float totalTime = 0.0;
+
+    if (m_stopped)
+    {
+        totalTime = ((m_stopTime - m_pausedTime) - m_baseTime) * m_secondsPerCount;
+    }
+    else
+    {
+        totalTime = ((m_currTime - m_pausedTime) - m_baseTime) * m_secondsPerCount;
+    }
+
+    return totalTime;
 }
 
-float BaseTimer::DeltaTimeInSecs() const{}
+float BaseTimer::DeltaTimeInSecs() const
+{
+    return static_cast<float>(m_deltaTime);
+}
 
 void BaseTimer::Reset()
 {

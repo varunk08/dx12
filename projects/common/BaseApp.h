@@ -42,9 +42,15 @@ protected:
     bool InitDirect3D();
     void CreateSwapChain();
     void FlushCommandQueue();
+    void CalculateFrameStats();
 
     static BaseApp* mApp;
 
+    // App properties
+    BaseTimer m_timer;
+    bool m_appPaused = false;
+
+    // Windows stuff
     HINSTANCE mhAppInst = nullptr;
     HWND      mhMainWnd = nullptr; // main window handle
     Microsoft::WRL::ComPtr<IDXGIFactory4> m_dxgiFactory;

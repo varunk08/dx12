@@ -21,7 +21,7 @@ private:
 
      // Time in counts obtained from QueryPerformanceCounter
     __int64 m_baseTime;
-    __int64 m_pausedTime;
+    __int64 m_pausedTime; // total paused duration
     __int64 m_stopTime;
     __int64 m_prevTime;
     __int64 m_currTime;

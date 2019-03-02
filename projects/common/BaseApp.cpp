@@ -37,18 +37,29 @@ void BaseApp::OnResize()
 int BaseApp::Run()
 {
     MSG msg = {};
-    BOOL bRet = 1;
-    while ((bRet = GetMessage(&msg, 0, 0, 0)) != 0)
+    m_timer.Reset();
+
+    while (msg.message != WM_QUIT)
     {
-        if (bRet == -1)
-        {
-            MessageBoxW(0, L"GetMessage FAILED", L"Error", MB_OK);
-            break;
-        }
-        else
+        if (PeekMessage(&msg, 0, 0, 0, PM_REMOVE))
         {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
+        }
+        else
+        {
+            m_timer.Tick();
+
+            if (m_appPaused == false)
+            {
+                CalculateFrameStats();
+                Update(m_timer);
+                Draw(m_timer);
+            }
+            else
+            {
+                Sleep(100);
+            }
         }
     }
 
@@ -66,8 +77,12 @@ LRESULT BaseApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     switch (msg)
     {
     case WM_LBUTTONDOWN:
-        MessageBoxW(0, L"Hello World", L"Hello", MB_OK);
+    {
+        std::wstring time = std::to_wstring(m_timer.TotalTimeInSecs());
+        time += std::wstring(L" seconds since start of app.");
+        MessageBoxW(0, time.c_str(), L"Hello", MB_OK);
         break;
+    }
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE)
         {
@@ -163,6 +178,18 @@ bool BaseApp::InitDirect3D()
     }
     
     return ret;
+}
+
+void BaseApp::CreateSwapChain()
+{
+}
+
+void BaseApp::FlushCommandQueue()
+{
+}
+
+void BaseApp::CalculateFrameStats()
+{
 }
 
 void BaseApp::LogAdapters()

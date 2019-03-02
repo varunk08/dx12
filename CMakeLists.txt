@@ -3,5 +3,5 @@ project(vkd3d12)
 
 include_directories(lib)
 include_directories(projects/common/)
-
+add_definitions(-DUNICODE)
 add_subdirectory(projects)
