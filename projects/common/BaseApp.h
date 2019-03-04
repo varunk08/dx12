@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "d3dx12.h"
 #include "BaseUtil.h"
 #include "BaseTimer.h"
 
@@ -46,6 +47,10 @@ protected:
     void CreateCommandObjects();
     void CreateRtvAndDsvDescriptorHeaps();
 
+    ID3D12Resource* CurrentBackBuffer()const;
+    D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView()const;
+    D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView()const;
+
     static BaseApp* mApp;
     static const int SwapChainBufferCount = 2;
 
@@ -65,15 +70,20 @@ protected:
     Microsoft::WRL::ComPtr<IDXGISwapChain>            m_swapChain;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>      m_rtvHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>      m_dsvHeap;
-
+    Microsoft::WRL::ComPtr<ID3D12Resource>            m_swapChainBuffer[SwapChainBufferCount];
+    Microsoft::WRL::ComPtr<ID3D12Resource>            m_depthStencilBuffer;
+    
+    UINT64 m_currBackBuffer          = 0;
     UINT64 m_cbvSrvUavDescriptorSize = 0;
-    UINT64 m_dsvDescriptorSize   = 0;
-    UINT64 m_rtvDescriptorSize   = 0;
-    UINT64 m_currentFence = 0;
-    DXGI_FORMAT m_backBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-    UINT       m_4xMsaaQuality = 0;      // quality level of 4X MSAA
-    bool      m_4xMsaaEn = false;    // 4X MSAA enabled
-
+    UINT64 m_dsvDescriptorSize       = 0;
+    UINT64 m_rtvDescriptorSize       = 0;
+    UINT64 m_currentFence            = 0;
+    DXGI_FORMAT m_backBufferFormat   = DXGI_FORMAT_R8G8B8A8_UNORM;
+    DXGI_FORMAT m_depthStencilFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    UINT       m_4xMsaaQuality       = 0;      // quality level of 4X MSAA
+    bool      m_4xMsaaEn             = false;    // 4X MSAA enabled
+    D3D12_VIEWPORT m_screenViewport;
+    D3D12_RECT m_scissorRect;
     int m_clientWidth = 800;
     int m_clientHeight = 600;
 

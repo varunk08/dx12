@@ -32,6 +32,100 @@ BaseApp::BaseApp(
 
 void BaseApp::OnResize()
 {
+    assert(m_d3dDevice);
+    assert(m_swapChain);
+    assert(m_directCmdListAlloc);
+
+    // Flush before changing any resources.
+    FlushCommandQueue();
+
+    ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
+
+    // Release the previous resources we will be recreating.
+    for (int i = 0; i < SwapChainBufferCount; ++i)
+    {
+        m_swapChainBuffer[i].Reset();
+    }
+    m_depthStencilBuffer.Reset();
+
+    // Resize the swap chain.
+    ThrowIfFailed(m_swapChain->ResizeBuffers(SwapChainBufferCount,
+                                             m_clientWidth, m_clientHeight,
+                                             m_backBufferFormat,
+                                             DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
+
+    m_currBackBuffer = 0;
+    
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart());
+    for (UINT i = 0; i < SwapChainBufferCount; i++)
+    {
+        ThrowIfFailed(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_swapChainBuffer[i])));
+        m_d3dDevice->CreateRenderTargetView(m_swapChainBuffer[i].Get(), nullptr, rtvHeapHandle);
+        rtvHeapHandle.Offset(1, m_rtvDescriptorSize);
+    }
+
+    // Create the depth/stencil buffer and view.
+    D3D12_RESOURCE_DESC depthStencilDesc;
+    depthStencilDesc.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    depthStencilDesc.Alignment        = 0;
+    depthStencilDesc.Width            = m_clientWidth;
+    depthStencilDesc.Height           = m_clientHeight;
+    depthStencilDesc.DepthOrArraySize = 1;
+    depthStencilDesc.MipLevels        = 1;
+
+    // Correction 11/12/2016: SSAO chapter requires an SRV to the depth buffer to read from 
+    // the depth buffer.  Therefore, because we need to create two views to the same resource:
+    //   1. SRV format: DXGI_FORMAT_R24_UNORM_X8_TYPELESS
+    //   2. DSV Format: DXGI_FORMAT_D24_UNORM_S8_UINT
+    // we need to create the depth buffer resource with a typeless format.  
+    depthStencilDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+
+    depthStencilDesc.SampleDesc.Count   = m_4xMsaaEn ? 4 : 1;
+    depthStencilDesc.SampleDesc.Quality = m_4xMsaaEn ? (m_4xMsaaQuality - 1) : 0;
+    depthStencilDesc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    depthStencilDesc.Flags              = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    D3D12_CLEAR_VALUE optClear;
+    optClear.Format = m_depthStencilFormat;
+    optClear.DepthStencil.Depth   = 1.0f;
+    optClear.DepthStencil.Stencil = 0;
+    ThrowIfFailed(m_d3dDevice->CreateCommittedResource(&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+                                                       D3D12_HEAP_FLAG_NONE,
+                                                       &depthStencilDesc,
+                                                       D3D12_RESOURCE_STATE_COMMON,
+                                                       &optClear,
+                                                       IID_PPV_ARGS(m_depthStencilBuffer.GetAddressOf())));
+
+    // Create descriptor to mip level 0 of entire resource using the format of the resource.
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc;
+    dsvDesc.Flags              = D3D12_DSV_FLAG_NONE;
+    dsvDesc.ViewDimension      = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsvDesc.Format             = m_depthStencilFormat;
+    dsvDesc.Texture2D.MipSlice = 0;
+    m_d3dDevice->CreateDepthStencilView(m_depthStencilBuffer.Get(), &dsvDesc, DepthStencilView());
+
+    // Transition the resource from its initial state to be used as a depth buffer.
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_depthStencilBuffer.Get(),
+                                   D3D12_RESOURCE_STATE_COMMON,
+                                   D3D12_RESOURCE_STATE_DEPTH_WRITE));
+    
+    // Execute the resize commands.
+    ThrowIfFailed(m_commandList->Close());
+    ID3D12CommandList* cmdsLists[] = { m_commandList.Get() };
+    m_commandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+
+    // Wait until resize is complete.
+    FlushCommandQueue();
+
+    // Update the viewport transform to cover the client area.
+    m_screenViewport.TopLeftX = 0;
+    m_screenViewport.TopLeftY = 0;
+    m_screenViewport.Width    = static_cast<float>(m_clientWidth);
+    m_screenViewport.Height   = static_cast<float>(m_clientHeight);
+    m_screenViewport.MinDepth = 0.0f;
+    m_screenViewport.MaxDepth = 1.0f;
+
+    m_scissorRect = { 0, 0, m_clientWidth, m_clientHeight };
 }
 
 int BaseApp::Run()
@@ -241,6 +335,22 @@ void BaseApp::CreateSwapChain()
 
 void BaseApp::FlushCommandQueue()
 {
+    m_currentFence++;
+
+    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), m_currentFence));
+    
+    // Wait until the GPU has completed commands up to this fence point.
+    if (m_fence->GetCompletedValue() < m_currentFence)
+    {
+        HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
+
+        // Fire event when GPU hits current fence.  
+        ThrowIfFailed(m_fence->SetEventOnCompletion(m_currentFence, eventHandle));
+
+        // Wait until the GPU hits current fence event is fired.
+        WaitForSingleObject(eventHandle, INFINITE);
+        CloseHandle(eventHandle);
+    }
 }
 
 void BaseApp::CalculateFrameStats()
@@ -285,6 +395,23 @@ void BaseApp::CreateRtvAndDsvDescriptorHeaps()
     dsvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     dsvHeapDesc.NodeMask       = 0;
     ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(m_dsvHeap.GetAddressOf())));
+}
+
+ID3D12Resource * BaseApp::CurrentBackBuffer() const
+{
+    return m_swapChainBuffer[m_currBackBuffer].Get();
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE BaseApp::CurrentBackBufferView() const
+{
+    return CD3DX12_CPU_DESCRIPTOR_HANDLE(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(),
+                                         m_currBackBuffer,
+                                         m_rtvDescriptorSize);
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE BaseApp::DepthStencilView() const
+{
+    return m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
 }
 
 void BaseApp::LogAdapters()
