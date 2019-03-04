@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <windowsx.h>
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl.h>
@@ -38,6 +39,11 @@ protected:
     virtual void OnResize();
     virtual void Update(const BaseTimer& gt) = 0;
     virtual void Draw(const BaseTimer& gt) = 0;
+    
+    // Convenience overrides for handling mouse input.
+    virtual void OnMouseDown(WPARAM btnState, int x, int y) { }
+    virtual void OnMouseUp(WPARAM btnState, int x, int y) { }
+    virtual void OnMouseMove(WPARAM btnState, int x, int y) { }
 
     bool InitMainWindow();
     bool InitDirect3D();
@@ -57,6 +63,9 @@ protected:
     // App properties
     BaseTimer m_timer;
     bool m_appPaused = false;
+    bool m_minimized = false;
+    bool m_maximized = false;
+    bool m_resizing  = false;
 
     // Windows and d3d app stuff.
     HINSTANCE mhAppInst = nullptr;

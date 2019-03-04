@@ -170,11 +170,108 @@ LRESULT BaseApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     LRESULT result = 0;
     switch (msg)
     {
+    case WM_ACTIVATE:
+    {   if (LOWORD(wParam) == WA_INACTIVE)
+        {
+            m_appPaused = true;
+            m_timer.Stop();
+        }
+        else
+        {
+            m_appPaused = false;
+            m_timer.Start();
+        }
+        break;
+    }
+    case WM_SIZE:
+    {
+        // Save the new client area dimensions.
+        m_clientWidth = LOWORD(lParam);
+        m_clientHeight = HIWORD(lParam);
+        if (m_d3dDevice)
+        {
+            if (wParam == SIZE_MINIMIZED)
+            {
+                m_appPaused = true;
+                m_minimized = true;
+                m_maximized = false;
+            }
+            else if (wParam == SIZE_MAXIMIZED)
+            {
+                m_appPaused = false;
+                m_minimized = false;
+                m_maximized = true;
+                OnResize();
+            }
+            else if (wParam == SIZE_RESTORED)
+            {
+
+                // Restoring from minimized state?
+                if (m_minimized)
+                {
+                    m_appPaused = false;
+                    m_minimized = false;
+                    OnResize();
+                }
+                else if (m_maximized)
+                {
+                    // Restoring from maximized state?
+                    m_appPaused = false;
+                    m_maximized = false;
+                    OnResize();
+                }
+                else if (m_resizing)
+                {
+                    // If user is dragging the resize bars, we do not resize 
+                    // the buffers here because as the user continuously 
+                    // drags the resize bars, a stream of WM_SIZE messages are
+                    // sent to the window, and it would be pointless (and slow)
+                    // to resize for each WM_SIZE message received from dragging
+                    // the resize bars.  So instead, we reset after the user is 
+                    // done resizing the window and releases the resize bars, which 
+                    // sends a WM_EXITSIZEMOVE message.
+                }
+                else // API call such as SetWindowPos or mSwapChain->SetFullscreenState.
+                {
+                    OnResize();
+                }
+            }
+        }
+        break;
+    }
+    case WM_ENTERSIZEMOVE:
+    {
+        break;
+    }
+    case WM_EXITSIZEMOVE:
+    {
+        break;
+    }
+    case WM_MENUCHAR:
+    {
+        break;
+    }
+    case WM_GETMINMAXINFO:
+    {
+        break;
+    }
+    case WM_MBUTTONDOWN:
+    case WM_RBUTTONDOWN:
     case WM_LBUTTONDOWN:
     {
-        std::wstring time = std::to_wstring(m_timer.TotalTimeInSecs());
-        time += std::wstring(L" seconds since start of app.");
-        MessageBoxW(0, time.c_str(), L"Hello", MB_OK);
+        OnMouseDown(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        break;
+    }
+    case WM_LBUTTONUP:
+    case WM_MBUTTONUP:
+    case WM_RBUTTONUP:
+    {
+        OnMouseUp(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        break;
+    }
+    case WM_MOUSEMOVE:
+    {
+        OnMouseMove(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         break;
     }
     case WM_KEYDOWN:

@@ -18,6 +18,9 @@ private:
     virtual void OnResize() override;
     virtual void Update(const BaseTimer& timer) override;
     virtual void Draw(const BaseTimer& timer) override;
+    virtual void OnMouseDown(WPARAM btnState, int x, int y);
+    virtual void OnMouseUp(WPARAM btnState, int x, int y);
+    virtual void OnMouseMove(WPARAM btnState, int x, int y);
 
 };
 
@@ -104,6 +107,21 @@ void InitD3dApp::Draw(const BaseTimer & timer)
     // done for simplicity.  Later we will show how to organize our rendering code
     // so we do not have to wait per frame.
     FlushCommandQueue();
+}
+
+void InitD3dApp::OnMouseDown(WPARAM btnState, int x, int y)
+{
+    std::wstring time = std::to_wstring(m_timer.TotalTimeInSecs());
+    time += std::wstring(L" seconds since start of app.");
+    MessageBoxW(0, time.c_str(), L"Hello", MB_OK);
+}
+
+void InitD3dApp::OnMouseUp(WPARAM btnState, int x, int y)
+{
+}
+
+void InitD3dApp::OnMouseMove(WPARAM btnState, int x, int y)
+{
 }
 
 int WINAPI WinMain(HINSTANCE hInstance,
