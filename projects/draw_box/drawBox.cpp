@@ -7,11 +7,11 @@
 using namespace std;
 using namespace DirectX;
 
-class InitD3dApp : public BaseApp
+class BasicBox : public BaseApp
 {
 public:
-    InitD3dApp(HINSTANCE hInstance);
-    ~InitD3dApp();
+    BasicBox(HINSTANCE hInstance);
+    ~BasicBox();
 
     virtual bool Initialize() override;
 private:
@@ -24,18 +24,18 @@ private:
 
 };
 
-InitD3dApp::InitD3dApp(
+BasicBox::BasicBox(
     HINSTANCE hInstance)
     :
     BaseApp(hInstance)
 {
 }
 
-InitD3dApp::~InitD3dApp()
+BasicBox::~BasicBox()
 {
 }
 
-bool InitD3dApp::Initialize()
+bool BasicBox::Initialize()
 {
     bool result = true;
     
@@ -53,16 +53,16 @@ bool InitD3dApp::Initialize()
     return result;
 }
 
-void InitD3dApp::OnResize()
+void BasicBox::OnResize()
 {
     BaseApp::OnResize();
 }
 
-void InitD3dApp::Update(const BaseTimer & timer)
+void BasicBox::Update(const BaseTimer & timer)
 {
 }
 
-void InitD3dApp::Draw(const BaseTimer & timer)
+void BasicBox::Draw(const BaseTimer & timer)
 {
     // Reuse the memory associated with command recording.
     // We can only reset when the associated command lists have finished execution on the GPU.
@@ -109,18 +109,18 @@ void InitD3dApp::Draw(const BaseTimer & timer)
     FlushCommandQueue();
 }
 
-void InitD3dApp::OnMouseDown(WPARAM btnState, int x, int y)
+void BasicBox::OnMouseDown(WPARAM btnState, int x, int y)
 {
     std::wstring time = std::to_wstring(m_timer.TotalTimeInSecs());
     time += std::wstring(L" seconds since start of app.");
     MessageBoxW(0, time.c_str(), L"Hello", MB_OK);
 }
 
-void InitD3dApp::OnMouseUp(WPARAM btnState, int x, int y)
+void BasicBox::OnMouseUp(WPARAM btnState, int x, int y)
 {
 }
 
-void InitD3dApp::OnMouseMove(WPARAM btnState, int x, int y)
+void BasicBox::OnMouseMove(WPARAM btnState, int x, int y)
 {
 }
 
@@ -134,7 +134,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
     _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 #endif
 
-    InitD3dApp theApp(hInstance);
+    BasicBox theApp(hInstance);
     int retCode = 0;
 
     if (theApp.Initialize() == true)
