@@ -3,14 +3,34 @@
 #include <DirectXColors.h>
 
 #include "../common/BaseApp.h"
+#include "../common/MathHelper.h"
 
 using namespace std;
 using namespace DirectX;
 
+// ==========================================================================================
+// Types used by this demo
+struct Vertex
+{
+    XMFLOAT3 Pos;
+    XMFLOAT4 Color;
+};
+
+struct ObjectConstants
+{
+    XMFLOAT4X4 WorldViewProj = MathHelper::Identity4x4();
+};
+
+// ==========================================================================================
+// The demo app
 class BasicBox : public BaseApp
 {
 public:
     BasicBox(HINSTANCE hInstance);
+
+    BasicBox(const BasicBox& box) = delete;
+    BasicBox& operator=(const BasicBox& box) = delete;
+
     ~BasicBox();
 
     virtual bool Initialize() override;
@@ -22,8 +42,16 @@ private:
     virtual void OnMouseUp(WPARAM btnState, int x, int y);
     virtual void OnMouseMove(WPARAM btnState, int x, int y);
 
+
+    void BuildPSO();
+    void BuildBoxGeometry();
+    void BuildShadersAndInputLayout();
+    void BuildRootSignature();
+    void BuildDescriptorHeaps();
+
 };
 
+// ==========================================================================================
 BasicBox::BasicBox(
     HINSTANCE hInstance)
     :
