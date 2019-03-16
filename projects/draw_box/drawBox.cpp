@@ -42,7 +42,6 @@ private:
     virtual void OnMouseUp(WPARAM btnState, int x, int y);
     virtual void OnMouseMove(WPARAM btnState, int x, int y);
 
-
     void BuildPSO();
     void BuildBoxGeometry();
     void BuildShadersAndInputLayout();
@@ -59,37 +58,44 @@ BasicBox::BasicBox(
 {
 }
 
+// ==========================================================================================
 BasicBox::~BasicBox()
 {
 }
 
+// ==========================================================================================
 bool BasicBox::Initialize()
 {
-    bool result = true;
+    bool result = BaseApp::Initialize();
+    if (result == true) {
+        ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));        
+        BuildDescriptorHeaps();
+        BuildConstantBuffers();
+        BuildRootSignature();
+        BuildShadersAndInputLayout();
+        BuildBoxGeometry();
+        BuildPSO();
+
+        ThrowIfFailed(mCommandList->Close());
+        ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
+        mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
     
-    result = InitMainWindow();
-    if (result == true)
-    {
-        result = InitDirect3D();
+        FlushCommandQueue();
     }
-
-    if (result == true)
-    {
-        OnResize();
-    }
-
-    return result;
 }
 
+// ==========================================================================================
 void BasicBox::OnResize()
 {
     BaseApp::OnResize();
 }
 
+// ==========================================================================================
 void BasicBox::Update(const BaseTimer & timer)
 {
 }
 
+// ==========================================================================================
 void BasicBox::Draw(const BaseTimer & timer)
 {
     // Reuse the memory associated with command recording.
@@ -137,6 +143,7 @@ void BasicBox::Draw(const BaseTimer & timer)
     FlushCommandQueue();
 }
 
+// ==========================================================================================
 void BasicBox::OnMouseDown(WPARAM btnState, int x, int y)
 {
     std::wstring time = std::to_wstring(m_timer.TotalTimeInSecs());
@@ -144,14 +151,17 @@ void BasicBox::OnMouseDown(WPARAM btnState, int x, int y)
     MessageBoxW(0, time.c_str(), L"Hello", MB_OK);
 }
 
+// ==========================================================================================
 void BasicBox::OnMouseUp(WPARAM btnState, int x, int y)
 {
 }
 
+// ==========================================================================================
 void BasicBox::OnMouseMove(WPARAM btnState, int x, int y)
 {
 }
 
+// ==========================================================================================
 int WINAPI WinMain(HINSTANCE hInstance,
                    HINSTANCE hPrevInstance,
                    PSTR      pCmdLine,

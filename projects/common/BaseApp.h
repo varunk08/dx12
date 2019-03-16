@@ -26,7 +26,6 @@ public:
     HINSTANCE AppInst() const;
     HWND      MainWnd() const;
     float     AspectRatio() const;
-
     int Run();
 
     virtual bool Initialize();

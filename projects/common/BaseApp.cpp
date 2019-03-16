@@ -162,7 +162,20 @@ int BaseApp::Run()
 
 bool BaseApp::Initialize()
 {
-    return false;
+    bool result = true;
+    
+    result = InitMainWindow();
+    if (result == true)
+    {
+        result = InitDirect3D();
+    }
+
+    if (result == true)
+    {
+        OnResize();
+    }
+
+    return result;
 }
 
 LRESULT BaseApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
