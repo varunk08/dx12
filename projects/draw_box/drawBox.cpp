@@ -45,8 +45,8 @@ private:
     void BuildPSO();
     void BuildBoxGeometry();
     void BuildShadersAndInputLayout();
-    void BuildRootSignature();
-    void BuildDescriptorHeaps();
+	void BuildRootSignature();
+	void BuildDescriptorHeaps();
 
 };
 
@@ -68,17 +68,16 @@ bool BasicBox::Initialize()
 {
     bool result = BaseApp::Initialize();
     if (result == true) {
-        ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));        
+        ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
         BuildDescriptorHeaps();
-        BuildConstantBuffers();
         BuildRootSignature();
         BuildShadersAndInputLayout();
         BuildBoxGeometry();
         BuildPSO();
 
-        ThrowIfFailed(mCommandList->Close());
-        ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
-        mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+        ThrowIfFailed(m_commandList->Close());
+        ID3D12CommandList* cmdsLists[] = { m_commandList.Get() };
+        m_commandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
     
         FlushCommandQueue();
     }
@@ -158,6 +157,26 @@ void BasicBox::OnMouseUp(WPARAM btnState, int x, int y)
 
 // ==========================================================================================
 void BasicBox::OnMouseMove(WPARAM btnState, int x, int y)
+{
+}
+
+void BasicBox::BuildPSO()
+{
+}
+
+void BasicBox::BuildBoxGeometry()
+{
+}
+
+void BasicBox::BuildShadersAndInputLayout()
+{
+}
+
+void BasicBox::BuildRootSignature()
+{
+}
+
+void BasicBox::BuildDescriptorHeaps()
 {
 }
 
