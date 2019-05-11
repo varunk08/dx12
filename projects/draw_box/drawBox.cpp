@@ -28,6 +28,7 @@ class BasicBox : public BaseApp
 public:
     BasicBox(HINSTANCE hInstance);
 
+	// tell mr. compiler not to generate these default functions
     BasicBox(const BasicBox& box) = delete;
     BasicBox& operator=(const BasicBox& box) = delete;
 
