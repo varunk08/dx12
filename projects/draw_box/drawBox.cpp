@@ -3,8 +3,11 @@
 #include <DirectXColors.h>
 
 #include "../common/BaseApp.h"
+#include "../common/BaseUtil.h"
 #include "../common/MathHelper.h"
+#include "../common/UploadBuffer.h"
 
+using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
 
@@ -28,7 +31,7 @@ class BasicBox : public BaseApp
 public:
     BasicBox(HINSTANCE hInstance);
 
-	// tell mr. compiler not to generate these default functions
+    // tell mr. compiler not to generate these default functions
     BasicBox(const BasicBox& box) = delete;
     BasicBox& operator=(const BasicBox& box) = delete;
 
@@ -46,8 +49,13 @@ private:
     void BuildPSO();
     void BuildBoxGeometry();
     void BuildShadersAndInputLayout();
-	void BuildRootSignature();
-	void BuildDescriptorHeaps();
+    void BuildRootSignature();
+    void BuildDescriptorHeaps();
+    void BuildConstantBuffers();
+
+    ComPtr<ID3D12DescriptorHeap> m_pCbvHeap                   = nullptr;
+    std::unique_ptr<UploadBuffer<ObjectConstants>> m_objectCb = nullptr;
+    ComPtr<ID3D12RootSignature> m_rootSignature               = nullptr;
 
 };
 
@@ -70,7 +78,9 @@ bool BasicBox::Initialize()
     bool result = BaseApp::Initialize();
     if (result == true) {
         ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
+
         BuildDescriptorHeaps();
+        BuildConstantBuffers();
         BuildRootSignature();
         BuildShadersAndInputLayout();
         BuildBoxGeometry();
@@ -173,15 +183,74 @@ void BasicBox::BuildShadersAndInputLayout()
 {
 }
 
+// ====================================================================================================================
+// Root signature defines inputs required by the shader.
 void BasicBox::BuildRootSignature()
 {
+    CD3DX12_ROOT_PARAMETER slotRootParameter[1];
+
+    CD3DX12_DESCRIPTOR_RANGE cbvTable = { };
+    cbvTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
+    slotRootParameter[0].InitAsDescriptorTable(1, &cbvTable);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(1,
+                                             slotRootParameter,
+                                             0,
+                                             nullptr,
+                                             D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    ComPtr<ID3DBlob> serializedRootSig = nullptr;
+    ComPtr<ID3DBlob> errorBlob         = nullptr;
+
+    HRESULT hr = D3D12SerializeRootSignature(&rootSignDesc,
+                                             D3D_ROOT_SIGNATURE_VERSION_1,
+                                             serializedRootSig.GetAddressOf(),
+                                             errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(m_d3dDevice->CreateRootSignature(0,
+                                                   serializedRootSig->GetBufferPointer(),
+                                                   serializedRootSig->GetBufferSize(),
+                                                   IID_PPV_ARGS(&m_rootSignature)));
 }
 
+// ====================================================================================================================
 void BasicBox::BuildDescriptorHeaps()
 {
+    D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = {};
+    cbvHeapDesc.NumDescriptors = 1;
+    cbvHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    cbvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    cbvHeapDesc.NodeMask       = 0;
+
+    ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&m_pCbvHeap)));
 }
 
-// ==========================================================================================
+// ====================================================================================================================
+void BasicBox::BuildConstantBuffers()
+{
+    m_objectCb = std::make_unique<UploadBuffer<ObjectConstants>>(m_d3dDevice.Get(), 1, true);
+    
+    UINT objCbBytes                         = BaseUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    D3D12_GPU_VIRTUAL_ADDRESS cbGpuVirtAddr = m_objectCb->Resource()->GetGPUVirtualAddress();
+
+    int boxCbufIndex = 0;
+    cbGpuVirtAddr    = boxCbufIndex * objCbBytes;
+
+    D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = { };
+    cbvDesc.BufferLocation                  = cbGpuVirtAddr;
+    cbvDesc.SizeInBytes                     = BaseUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+
+    m_d3dDevice->CreateConstantBufferView(&cbvDesc, m_pCbvHeap->GetCPUDescriptorHandleForHeapStart());
+}
+
+// ====================================================================================================================
 int WINAPI WinMain(HINSTANCE hInstance,
                    HINSTANCE hPrevInstance,
                    PSTR      pCmdLine,

@@ -350,7 +350,7 @@ bool BaseApp::InitMainWindow()
 
     return result;
 }
-
+// ==========================================================================================
 bool BaseApp::InitDirect3D()
 {
     bool ret = true;
