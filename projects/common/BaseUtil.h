@@ -48,6 +48,8 @@ public:
         // 512
         return (byteSize + 255) & ~255;
     }
+
+    static 
 };
 
 class DxException
