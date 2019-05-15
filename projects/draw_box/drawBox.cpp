@@ -56,7 +56,10 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_pCbvHeap                   = nullptr;
     std::unique_ptr<UploadBuffer<ObjectConstants>> m_objectCb = nullptr;
     ComPtr<ID3D12RootSignature> m_rootSignature               = nullptr;
-
+    ComPtr<ID3DBlob> m_vsByteCode                             = nullptr;
+    ComPtr<ID3DBlob> m_psByteCode                             = nullptr;
+    
+    std::vector<D3D12_INPUT_ELEMENT_DESC> m_inputLayout;
 };
 
 // ==========================================================================================
@@ -183,7 +186,15 @@ void BasicBox::BuildBoxGeometry()
 void BasicBox::BuildShadersAndInputLayout()
 {
     HRESULT hr = S_OK;
-    // NEXT: write BaseUtil::CompileShader
+
+    m_vsByteCode = BaseUtil::CompileShader(L"shaders\\color.hlsl", nullptr, "VS", "vs_5_0");
+    m_psByteCode = BaseUtil::CompileShader(L"shaders\\color.hlsl", nullptr, "PS", "ps_5_0");
+
+    m_inputLayout =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+    };
 }
 
 // ====================================================================================================================
