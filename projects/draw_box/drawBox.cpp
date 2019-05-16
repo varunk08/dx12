@@ -1,6 +1,14 @@
+#include <array>
 #include <iostream>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include <Windows.h>
+
+#include <DirectXCollision.h>
 #include <DirectXColors.h>
+#include <DirectXMath.h>
 
 #include "../common/BaseApp.h"
 #include "../common/BaseUtil.h"
@@ -22,6 +30,62 @@ struct Vertex
 struct ObjectConstants
 {
     XMFLOAT4X4 WorldViewProj = MathHelper::Identity4x4();
+};
+
+// Provides the offset and data needed for a subset of geometry in the same vertex and
+// index buffer.
+struct SubmeshGeometry
+{
+    UINT indexCount = 0;
+    UINT startIndexLocation = 0;
+    INT baseVertexLocation = 0;
+
+    DirectX::BoundingBox bounds;
+};
+
+struct MeshGeometry
+{
+    std::string name;
+
+    Microsoft::WRL::ComPtr<ID3DBlob> vertexBufferCPU = nullptr;
+    Microsoft::WRL::ComPtr<ID3DBlob> indexBufferCPU  = nullptr;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> vertexBufferGPU = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12Resource> indexBufferGPU  = nullptr;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> vertexBufferUploader = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12Resource> indexBufferUploader  = nullptr;
+
+    UINT vertexByteStride     = 0;
+    UINT vertexBufferByteSize = 0;
+    DXGI_FORMAT indexFormat   = DXGI_FORMAT_R16_UINT;
+    UINT indexBufferByteSize  = 0;
+
+    std::unordered_map<std::string, SubmeshGeometry> drawArgs;
+
+    D3D12_VERTEX_BUFFER_VIEW vertexBufferView() const
+    {
+        D3D12_VERTEX_BUFFER_VIEW vbv = { };
+        vbv.BufferLocation           = vertexBufferGPU->GetGPUVirtualAddress();
+        vbv.StrideInBytes            = vertexByteStride;
+        vbv.SizeInBytes              = vertexBufferByteSize;
+        return vbv;
+    }
+
+    D3D12_INDEX_BUFFER_VIEW indexBufferView() const
+    {
+        D3D12_INDEX_BUFFER_VIEW ibv = { };
+        ibv.BufferLocation          = indexBufferGPU->GetGPUVirtualAddress();
+        ibv.Format                  = indexFormat;
+        ibv.SizeInBytes             = indexBufferByteSize;
+        return ibv;
+    }
+
+    void DisposeUploaders()
+    {
+        vertexBufferUploader = nullptr;
+        indexBufferUploader  = nullptr;
+    }
 };
 
 // ==========================================================================================
@@ -55,6 +119,7 @@ private:
 
     ComPtr<ID3D12DescriptorHeap> m_pCbvHeap                   = nullptr;
     std::unique_ptr<UploadBuffer<ObjectConstants>> m_objectCb = nullptr;
+    std::unique_ptr<MeshGeometry> m_boxGeo                    = nullptr;
     ComPtr<ID3D12RootSignature> m_rootSignature               = nullptr;
     ComPtr<ID3DBlob> m_vsByteCode                             = nullptr;
     ComPtr<ID3DBlob> m_psByteCode                             = nullptr;
@@ -180,6 +245,80 @@ void BasicBox::BuildPSO()
 
 void BasicBox::BuildBoxGeometry()
 {
+    std::array<Vertex, 8> vertices =
+    {
+        Vertex({XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT4(Colors::White)}),
+        Vertex({XMFLOAT3(-1.0f, +1.0f, -1.0f), XMFLOAT4(Colors::Black)}),
+        Vertex({XMFLOAT3(+1.0f, +1.0f, -1.0f), XMFLOAT4(Colors::Red)}),
+        Vertex({XMFLOAT3(+1.0f, -1.0f, -1.0f), XMFLOAT4(Colors::Green)}),
+        Vertex({XMFLOAT3(-1.0f, -1.0f, +1.0f), XMFLOAT4(Colors::Blue)}),
+        Vertex({XMFLOAT3(-1.0f, +1.0f, +1.0f), XMFLOAT4(Colors::Yellow)}),
+        Vertex({XMFLOAT3(+1.0f, +1.0f, +1.0f), XMFLOAT4(Colors::Cyan)}),
+        Vertex({XMFLOAT3(+1.0f, -1.0f, +1.0f), XMFLOAT4(Colors::Magenta)})
+    };
+
+    std::array<std::uint16_t, 36> indices =
+    {
+        // front face
+        0, 1, 2,
+        0, 2, 3,
+
+        // back face
+        4, 6, 5,
+        4, 7, 6,
+
+        // left face
+        4, 5, 1,
+        4, 1, 0,
+
+        // right face
+        3, 2, 6,
+        3, 6, 7,
+
+        // top face
+        1, 5, 6,
+        1, 6, 2,
+
+        // bottom face
+        4, 0, 3,
+        4, 3, 7,
+    };
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    m_boxGeo = std::make_unique<MeshGeometry>();
+    m_boxGeo->name = "box_geometry";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &m_boxGeo->vertexBufferCPU));
+    CopyMemory(m_boxGeo->vertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &m_boxGeo->indexBufferCPU));
+    CopyMemory(m_boxGeo->indexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    m_boxGeo->vertexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+                                                              m_commandList.Get(),
+                                                              vertices.data(),
+                                                              vbByteSize,
+                                                              m_boxGeo->vertexBufferUploader);
+
+    m_boxGeo->indexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+                                                             m_commandList.Get(),
+                                                             indices.data(),
+                                                             ibByteSize,
+                                                             m_boxGeo->indexBufferUploader);
+
+    m_boxGeo->vertexByteStride     = sizeof(Vertex);
+    m_boxGeo->vertexBufferByteSize = vbByteSize;
+    m_boxGeo->indexFormat          = DXGI_FORMAT_R16_UINT;
+    m_boxGeo->indexBufferByteSize  = ibByteSize;
+
+    SubmeshGeometry subMesh    = { };
+    subMesh.indexCount         = (UINT) indices.size();
+    subMesh.startIndexLocation = 0;
+    subMesh.baseVertexLocation = 0;
+
+    m_boxGeo->drawArgs["box"] = subMesh;
 }
 
 // ====================================================================================================================

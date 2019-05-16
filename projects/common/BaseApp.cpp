@@ -61,7 +61,7 @@ void BaseApp::OnResize()
     {
         ThrowIfFailed(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_swapChainBuffer[i])));
         m_d3dDevice->CreateRenderTargetView(m_swapChainBuffer[i].Get(), nullptr, rtvHeapHandle);
-        rtvHeapHandle.Offset(1, m_rtvDescriptorSize);
+        rtvHeapHandle.Offset(1, (UINT)m_rtvDescriptorSize);
     }
 
     // Create the depth/stencil buffer and view.
@@ -515,8 +515,8 @@ ID3D12Resource * BaseApp::CurrentBackBuffer() const
 D3D12_CPU_DESCRIPTOR_HANDLE BaseApp::CurrentBackBufferView() const
 {
     return CD3DX12_CPU_DESCRIPTOR_HANDLE(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(),
-                                         m_currBackBuffer,
-                                         m_rtvDescriptorSize);
+                                         static_cast<INT>(m_currBackBuffer),
+                                         static_cast<UINT>(m_rtvDescriptorSize));
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE BaseApp::DepthStencilView() const
