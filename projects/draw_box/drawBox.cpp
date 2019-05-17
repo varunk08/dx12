@@ -123,6 +123,7 @@ private:
     ComPtr<ID3D12RootSignature> m_rootSignature               = nullptr;
     ComPtr<ID3DBlob> m_vsByteCode                             = nullptr;
     ComPtr<ID3DBlob> m_psByteCode                             = nullptr;
+    ComPtr<ID3D12PipelineState> m_pso                         = nullptr;
     
     std::vector<D3D12_INPUT_ELEMENT_DESC> m_inputLayout;
 };
@@ -241,6 +242,39 @@ void BasicBox::OnMouseMove(WPARAM btnState, int x, int y)
 
 void BasicBox::BuildPSO()
 {
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = { };
+    ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+
+    psoDesc.InputLayout =
+    { 
+        m_inputLayout.data(), (UINT) m_inputLayout.size()
+    };
+
+    psoDesc.pRootSignature = m_rootSignature.Get();
+    psoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(m_vsByteCode->GetBufferPointer()),
+        m_vsByteCode->GetBufferSize()
+    };
+    
+    psoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(m_psByteCode->GetBufferPointer()),
+        m_psByteCode->GetBufferSize()
+    };
+
+    psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    psoDesc.SampleMask =  UINT_MAX;
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    psoDesc.NumRenderTargets = 1;
+    psoDesc.RTVFormats[0] = m_backBufferFormat;
+    psoDesc.SampleDesc.Count = m_4xMsaaEn ? 4 : 1;
+    psoDesc.SampleDesc.Quality = m_4xMsaaEn ? (m_4xMsaaQuality - 1) : 0;
+    psoDesc.DSVFormat = m_depthStencilFormat;
+
+    ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pso)));
 }
 
 void BasicBox::BuildBoxGeometry()
