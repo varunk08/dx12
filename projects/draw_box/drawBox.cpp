@@ -190,6 +190,24 @@ void BasicBox::OnResize()
 // ==========================================================================================
 void BasicBox::Update(const BaseTimer & timer)
 {
+    float x = m_radius * sinf(m_phi) * cosf(m_theta);
+    float y = m_radius * sinf(m_phi) * sinf(m_theta);
+    float z = m_radius * cosf(m_phi);
+
+    XMVECTOR pos = XMVectorSet(x, y, z, 1.0f);
+    XMVECTOR target = XMVectorZero();
+    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+    XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+    XMStoreFloat4x4(&m_view, view);
+
+    XMMATRIX world = XMLoadFloat4x4(&m_world);
+    XMMATRIX proj = XMLoadFloat4x4(&m_proj);
+    XMMATRIX worldViewProj = world * view * proj;
+
+    ObjectConstants objConstants = { };
+    XMStoreFloat4x4(&objConstants.WorldViewProj, XMMatrixTranspose(worldViewProj));
+    m_objectCb->CopyData(0, objConstants);
 }
 
 // ==========================================================================================
