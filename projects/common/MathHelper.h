@@ -10,6 +10,9 @@ class MathHelper
 {
 public:
 
+    static const float Pi;
+    static const float Infinity;
+
     static DirectX::XMFLOAT4X4 Identity4x4()
     {
         static DirectX::XMFLOAT4X4 I(

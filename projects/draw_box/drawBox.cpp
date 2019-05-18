@@ -106,6 +106,7 @@ private:
     virtual void OnResize() override;
     virtual void Update(const BaseTimer& timer) override;
     virtual void Draw(const BaseTimer& timer) override;
+
     virtual void OnMouseDown(WPARAM btnState, int x, int y);
     virtual void OnMouseUp(WPARAM btnState, int x, int y);
     virtual void OnMouseMove(WPARAM btnState, int x, int y);
@@ -126,6 +127,14 @@ private:
     ComPtr<ID3D12PipelineState> m_pso                         = nullptr;
     
     std::vector<D3D12_INPUT_ELEMENT_DESC> m_inputLayout;
+
+    XMFLOAT4X4 m_world = MathHelper::Identity4x4();
+    XMFLOAT4X4 m_view  = MathHelper::Identity4x4();
+    XMFLOAT4X4 m_proj  = MathHelper::Identity4x4();
+
+    float m_theta  = 1.5f * XM_PI;
+    float m_phi    = XM_PIDIV4;
+    float m_radius = 5.0f;
 };
 
 // ==========================================================================================
@@ -145,6 +154,7 @@ BasicBox::~BasicBox()
 bool BasicBox::Initialize()
 {
     bool result = BaseApp::Initialize();
+
     if (result == true) {
         ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
 
@@ -161,12 +171,20 @@ bool BasicBox::Initialize()
     
         FlushCommandQueue();
     }
+
+    return result;
 }
 
 // ==========================================================================================
 void BasicBox::OnResize()
 {
     BaseApp::OnResize();
+
+    XMMATRIX proj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi,
+                                             AspectRatio(),
+                                             1.0f,
+                                             1000.0f);
+    XMStoreFloat4x4(&m_proj, proj);
 }
 
 // ==========================================================================================

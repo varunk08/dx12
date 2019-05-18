@@ -128,6 +128,11 @@ void BaseApp::OnResize()
     m_scissorRect = { 0, 0, m_clientWidth, m_clientHeight };
 }
 
+float BaseApp::AspectRatio() const
+{
+    return static_cast<float>(m_clientWidth) / m_clientHeight;
+}
+
 int BaseApp::Run()
 {
     MSG msg = {};
