@@ -196,20 +196,20 @@ void BasicBox::Update(const BaseTimer & timer)
     float y = m_radius * sinf(m_phi) * sinf(m_theta);
     float z = m_radius * cosf(m_phi);
 
-    XMVECTOR pos = XMVectorSet(x, y, z, 1.0f);
+    XMVECTOR pos    = XMVectorSet(x, y, z, 1.0f);
     XMVECTOR target = XMVectorZero();
-    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    XMVECTOR up     = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
     XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
     XMStoreFloat4x4(&m_view, view);
 
-    XMMATRIX world = XMLoadFloat4x4(&m_world);
-    XMMATRIX proj = XMLoadFloat4x4(&m_proj);
+    XMMATRIX world         = XMLoadFloat4x4(&m_world);
+    XMMATRIX proj          = XMLoadFloat4x4(&m_proj);
     XMMATRIX worldViewProj = world * view * proj;
 
-ObjectConstants objConstants = { };
-XMStoreFloat4x4(&objConstants.WorldViewProj, XMMatrixTranspose(worldViewProj));
-m_objectCb->CopyData(0, objConstants);
+    ObjectConstants objConstants = { };
+    XMStoreFloat4x4(&objConstants.WorldViewProj, XMMatrixTranspose(worldViewProj));
+    m_objectCb->CopyData(0, objConstants);
 }
 
 // ==========================================================================================
@@ -229,18 +229,18 @@ void BasicBox::Draw(const BaseTimer& timer)
 
     // Indicate a state transition on the resource usage.
     m_commandList->ResourceBarrier(1,
-        &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-            D3D12_RESOURCE_STATE_PRESENT,
-            D3D12_RESOURCE_STATE_RENDER_TARGET));
+                                   &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                                   D3D12_RESOURCE_STATE_PRESENT,
+                                   D3D12_RESOURCE_STATE_RENDER_TARGET));
 
     // Clear the back buffer and depth buffer.
     m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightBlue, 0, nullptr);
     m_commandList->ClearDepthStencilView(DepthStencilView(),
-        D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
-        1.0f,
-        0,
-        0,
-        nullptr);
+                                         D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+                                         1.0f,
+                                         0,
+                                         0,
+                                         nullptr);
 
     // Specify the buffers we are going to render to.
     m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
@@ -251,7 +251,7 @@ void BasicBox::Draw(const BaseTimer& timer)
     };
     m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
-    //m_commandList->SetPipelineState(m_pso.Get());
+    m_commandList->SetPipelineState(m_pso.Get());
     m_commandList->IASetVertexBuffers(0, 1, &m_boxGeo->vertexBufferView());
     m_commandList->IASetIndexBuffer(&m_boxGeo->indexBufferView());
     m_commandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -262,9 +262,9 @@ void BasicBox::Draw(const BaseTimer& timer)
 
     // Indicate a state transition on the resource usage.
     m_commandList->ResourceBarrier(1,
-        &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET,
-            D3D12_RESOURCE_STATE_PRESENT));
+                                   &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                                   D3D12_RESOURCE_STATE_RENDER_TARGET,
+                                   D3D12_RESOURCE_STATE_PRESENT));
 
     // Done recording commands.
     ThrowIfFailed(m_commandList->Close());
@@ -355,7 +355,7 @@ void BasicBox::BuildPSO()
     psoDesc.RasterizerState       = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
     psoDesc.BlendState            = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     psoDesc.DepthStencilState     = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-    psoDesc.SampleMask            =  UINT_MAX;
+    psoDesc.SampleMask            = UINT_MAX;
     psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     psoDesc.NumRenderTargets      = 1;
     psoDesc.RTVFormats[0]         = m_backBufferFormat;
@@ -375,6 +375,7 @@ void BasicBox::BuildBoxGeometry()
         Vertex({XMFLOAT3(-1.0f, +1.0f, -1.0f), XMFLOAT4(Colors::Black)}),
         Vertex({XMFLOAT3(+1.0f, +1.0f, -1.0f), XMFLOAT4(Colors::Red)}),
         Vertex({XMFLOAT3(+1.0f, -1.0f, -1.0f), XMFLOAT4(Colors::Green)}),
+
         Vertex({XMFLOAT3(-1.0f, -1.0f, +1.0f), XMFLOAT4(Colors::Blue)}),
         Vertex({XMFLOAT3(-1.0f, +1.0f, +1.0f), XMFLOAT4(Colors::Yellow)}),
         Vertex({XMFLOAT3(+1.0f, +1.0f, +1.0f), XMFLOAT4(Colors::Cyan)}),
@@ -412,7 +413,7 @@ void BasicBox::BuildBoxGeometry()
     const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
 
     m_boxGeo = std::make_unique<MeshGeometry>();
-    m_boxGeo->name = "box_geometry";
+    m_boxGeo->name = "boxgeo";
 
     ThrowIfFailed(D3DCreateBlob(vbByteSize, &m_boxGeo->vertexBufferCPU));
     CopyMemory(m_boxGeo->vertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
@@ -455,8 +456,8 @@ void BasicBox::BuildShadersAndInputLayout()
 
     m_inputLayout =
     {
-        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
     };
 }
 
@@ -518,7 +519,7 @@ void BasicBox::BuildConstantBuffers()
     D3D12_GPU_VIRTUAL_ADDRESS cbGpuVirtAddr = m_objectCb->Resource()->GetGPUVirtualAddress();
 
     int boxCbufIndex = 0;
-    cbGpuVirtAddr    = boxCbufIndex * objCbBytes;
+    cbGpuVirtAddr    += boxCbufIndex * objCbBytes;
 
     D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = { };
     cbvDesc.BufferLocation                  = cbGpuVirtAddr;
