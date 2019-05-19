@@ -221,7 +221,7 @@ void BasicBox::Draw(const BaseTimer& timer)
 
     // A command list can be reset after it has been added to the command queue via ExecuteCommandList.
     // Reusing the command list reuses memory.
-    ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
+    ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), m_pso.Get()));
 
     // Set the viewport and scissor rect.  This needs to be reset whenever the command list is reset.
     m_commandList->RSSetViewports(1, &m_screenViewport);
@@ -251,7 +251,7 @@ void BasicBox::Draw(const BaseTimer& timer)
     };
     m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
-    m_commandList->SetPipelineState(m_pso.Get());
+
     m_commandList->IASetVertexBuffers(0, 1, &m_boxGeo->vertexBufferView());
     m_commandList->IASetIndexBuffer(&m_boxGeo->indexBufferView());
     m_commandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
