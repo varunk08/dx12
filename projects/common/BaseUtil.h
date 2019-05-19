@@ -111,7 +111,7 @@ public:
         HRESULT hr = S_OK;
 
         Microsoft::WRL::ComPtr<ID3DBlob> byteCode = nullptr;
-        Microsoft::WRL::ComPtr<ID3DBlob> errors;
+        Microsoft::WRL::ComPtr<ID3DBlob> errors   = nullptr;
         hr = D3DCompileFromFile(filename.c_str(),
                                 pDefines,
                                 D3D_COMPILE_STANDARD_FILE_INCLUDE,

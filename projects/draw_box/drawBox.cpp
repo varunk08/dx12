@@ -135,6 +135,8 @@ private:
     float m_theta  = 1.5f * XM_PI;
     float m_phi    = XM_PIDIV4;
     float m_radius = 5.0f;
+
+    POINT m_lastMousePos;
 };
 
 // ==========================================================================================
@@ -205,13 +207,13 @@ void BasicBox::Update(const BaseTimer & timer)
     XMMATRIX proj = XMLoadFloat4x4(&m_proj);
     XMMATRIX worldViewProj = world * view * proj;
 
-    ObjectConstants objConstants = { };
-    XMStoreFloat4x4(&objConstants.WorldViewProj, XMMatrixTranspose(worldViewProj));
-    m_objectCb->CopyData(0, objConstants);
+ObjectConstants objConstants = { };
+XMStoreFloat4x4(&objConstants.WorldViewProj, XMMatrixTranspose(worldViewProj));
+m_objectCb->CopyData(0, objConstants);
 }
 
 // ==========================================================================================
-void BasicBox::Draw(const BaseTimer & timer)
+void BasicBox::Draw(const BaseTimer& timer)
 {
     // Reuse the memory associated with command recording.
     // We can only reset when the associated command lists have finished execution on the GPU.
@@ -221,25 +223,48 @@ void BasicBox::Draw(const BaseTimer & timer)
     // Reusing the command list reuses memory.
     ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
 
-    // Indicate a state transition on the resource usage.
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-                                   D3D12_RESOURCE_STATE_PRESENT,
-                                   D3D12_RESOURCE_STATE_RENDER_TARGET));
-
     // Set the viewport and scissor rect.  This needs to be reset whenever the command list is reset.
     m_commandList->RSSetViewports(1, &m_screenViewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
+    // Indicate a state transition on the resource usage.
+    m_commandList->ResourceBarrier(1,
+        &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_PRESENT,
+            D3D12_RESOURCE_STATE_RENDER_TARGET));
+
     // Clear the back buffer and depth buffer.
-    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::MediumVioletRed, 0, nullptr);
-    m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightBlue, 0, nullptr);
+    m_commandList->ClearDepthStencilView(DepthStencilView(),
+        D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+        1.0f,
+        0,
+        0,
+        nullptr);
 
     // Specify the buffers we are going to render to.
     m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
+    ID3D12DescriptorHeap* descriptorHeaps[] =
+    {
+        m_pCbvHeap.Get()
+    };
+    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+    m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+    //m_commandList->SetPipelineState(m_pso.Get());
+    m_commandList->IASetVertexBuffers(0, 1, &m_boxGeo->vertexBufferView());
+    m_commandList->IASetIndexBuffer(&m_boxGeo->indexBufferView());
+    m_commandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    m_commandList->SetGraphicsRootDescriptorTable(0, m_pCbvHeap->GetGPUDescriptorHandleForHeapStart());
+
+    m_commandList->DrawIndexedInstanced(m_boxGeo->drawArgs["box"].indexCount, 1, 0, 0, 0);
+
     // Indicate a state transition on the resource usage.
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+    m_commandList->ResourceBarrier(1,
+        &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_PRESENT));
 
     // Done recording commands.
     ThrowIfFailed(m_commandList->Close());
@@ -261,21 +286,49 @@ void BasicBox::Draw(const BaseTimer & timer)
 // ==========================================================================================
 void BasicBox::OnMouseDown(WPARAM btnState, int x, int y)
 {
-    std::wstring time = std::to_wstring(m_timer.TotalTimeInSecs());
+    /*std::wstring time = std::to_wstring(m_timer.TotalTimeInSecs());
     time += std::wstring(L" seconds since start of app.");
-    MessageBoxW(0, time.c_str(), L"Hello", MB_OK);
+    MessageBoxW(0, time.c_str(), L"Hello", MB_OK);*/
+
+    m_lastMousePos.x = x;
+    m_lastMousePos.y = y;
+
+    SetCapture(mhMainWnd);
 }
 
 // ==========================================================================================
 void BasicBox::OnMouseUp(WPARAM btnState, int x, int y)
 {
+    ReleaseCapture();
 }
 
 // ==========================================================================================
 void BasicBox::OnMouseMove(WPARAM btnState, int x, int y)
 {
+    if ((btnState & MK_LBUTTON) != 0)
+    {
+        float dx = XMConvertToRadians(0.25f * static_cast<float>(x - m_lastMousePos.x));
+        float dy = XMConvertToRadians(0.25f * static_cast<float>(y - m_lastMousePos.y));
+
+        m_theta += dx;
+        m_phi   += dy;
+
+        m_phi = MathHelper::Clamp(m_phi, 0.1f, MathHelper::Pi - 0.1f);
+    }
+    else if ((btnState & MK_RBUTTON) != 0)
+    {
+        float dx = 0.005f * static_cast<float>(x - m_lastMousePos.x);
+        float dy = 0.005f * static_cast<float>(y - m_lastMousePos.y);
+
+        m_radius += dx - dy;
+        m_radius = MathHelper::Clamp(m_radius, 3.0f, 15.0f);
+    }
+
+    m_lastMousePos.x = x;
+    m_lastMousePos.y = y;
 }
 
+// ==========================================================================================
 void BasicBox::BuildPSO()
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = { };
@@ -299,18 +352,19 @@ void BasicBox::BuildPSO()
         m_psByteCode->GetBufferSize()
     };
 
-    psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-    psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-    psoDesc.SampleMask =  UINT_MAX;
+    psoDesc.RasterizerState       = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    psoDesc.BlendState            = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    psoDesc.DepthStencilState     = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    psoDesc.SampleMask            =  UINT_MAX;
     psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    psoDesc.NumRenderTargets = 1;
-    psoDesc.RTVFormats[0] = m_backBufferFormat;
-    psoDesc.SampleDesc.Count = m_4xMsaaEn ? 4 : 1;
-    psoDesc.SampleDesc.Quality = m_4xMsaaEn ? (m_4xMsaaQuality - 1) : 0;
-    psoDesc.DSVFormat = m_depthStencilFormat;
+    psoDesc.NumRenderTargets      = 1;
+    psoDesc.RTVFormats[0]         = m_backBufferFormat;
+    psoDesc.SampleDesc.Count      = m_4xMsaaEn ? 4 : 1;
+    psoDesc.SampleDesc.Quality    = m_4xMsaaEn ? (m_4xMsaaQuality - 1) : 0;
+    psoDesc.DSVFormat             = m_depthStencilFormat;
 
-    ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pso)));
+    HRESULT hr = m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pso));
+    ThrowIfFailed(hr);
 }
 
 void BasicBox::BuildBoxGeometry()
