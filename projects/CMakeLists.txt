@@ -21,6 +21,7 @@ set (PROJECTS
      basic_window
      hello_world
      d3d_initialization
-     draw_box)
+     draw_box
+     shapes)
 
 buildAllProjects()
