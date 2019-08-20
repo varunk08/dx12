@@ -1,5 +1,7 @@
 #include <array>
 #include <vector>
+#include <unordered_map>
+#include <string>
 
 #include <Windows.h>
 
@@ -8,6 +10,7 @@
 #include <DirectXMath.h>
 
 #include "../common/BaseApp.h"
+#include "../common/BaseUtil.h"
 #include "../common/d3dx12.h"
 
 using Microsoft::WRL::ComPtr;
@@ -26,7 +29,10 @@ private:
     void Draw(const BaseTimer& gt);
 
     void ShapesBuildRootSignature();
+    void ShapesBuildShadersAndInputLayout();
 
+    std::vector<D3D12_INPUT_ELEMENT_DESC> m_inputLayout;
+    std::unordered_map<std::string, ComPtr<ID3DBlob>> m_shaders;
     ComPtr<ID3D12RootSignature> m_rootSignature = nullptr;
 };
 
@@ -106,6 +112,19 @@ void ShapesDemo::ShapesBuildRootSignature()
                                                    serializeRootSign->GetBufferPointer(),
                                                    serializeRootSign->GetBufferSize(),
                                                    IID_PPV_ARGS(m_rootSignature.GetAddressOf())));
+}
+
+
+void ShapesDemo::ShapesBuildShadersAndInputLayout()
+{
+    m_shaders["standardVS"] = BaseUtil::CompileShader(L"shaders\\colors.hlsl", nullptr, "VS", "vs_5_1");
+    m_shaders["opaquePS"]   = BaseUtil::CompileShader(L"shaders\\colors.hlsl", nullptr, "PS", "ps_5_1");
+
+    m_inputLayout = 
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+    };
 }
 
 
