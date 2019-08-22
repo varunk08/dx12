@@ -12,6 +12,7 @@
 #include "../common/BaseApp.h"
 #include "../common/BaseUtil.h"
 #include "../common/d3dx12.h"
+#include "../common/GeometryGenerator.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace std;
@@ -30,6 +31,7 @@ private:
 
     void ShapesBuildRootSignature();
     void ShapesBuildShadersAndInputLayout();
+    void ShapesBuildShapeGeometry();
 
     std::vector<D3D12_INPUT_ELEMENT_DESC> m_inputLayout;
     std::unordered_map<std::string, ComPtr<ID3DBlob>> m_shaders;
@@ -125,6 +127,12 @@ void ShapesDemo::ShapesBuildShadersAndInputLayout()
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
     };
+}
+
+
+void ShapesDemo::ShapesBuildShapeGeometry()
+{
+    
 }
 
 
