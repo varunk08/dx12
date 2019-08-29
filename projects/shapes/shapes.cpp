@@ -14,6 +14,8 @@
 #include "../common/d3dx12.h"
 #include "../common/GeometryGenerator.h"
 
+#include "FrameResource.h"
+
 using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
@@ -132,7 +134,39 @@ void ShapesDemo::ShapesBuildShadersAndInputLayout()
 
 void ShapesDemo::ShapesBuildShapeGeometry()
 {
-    
+    GeometryGenerator geoGen;
+	MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 3);
+	
+	UINT boxVertexOffset = 0;
+	UINT boxIndexOffset = 0;
+	
+	SubmeshGeometry boxSubmesh;
+	boxSubmesh.indexCount = static_cast<UINT>(box.m_indices32.size());
+	boxSubmesh.startIndexLocation = boxIndexOffset;
+	boxSubmesh.baseVertexLocation = boxVertexOffset;
+	
+	auto totalVertexCount = box.m_vertices.size();
+	
+	std::vector<FrameResource::Vertex> vertices(totalVertexCount);
+	
+	UINT k = 0;
+	for (size_t i = 0; i < box.m_vertices.size(); ++i, ++k)
+	{
+		vertices[k].pos = box.m_vertices[i].m_position;
+		vertices[k].color = XMFLOAT4(DirectX::Colors::DarkGreen);
+	}
+	
+	std::vector<std::uint16_t> indices;
+	indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
+	
+	const UINT vbByteSize = static_cast<UINT>(vertices.size());
+	const UINT ibByteSize = static_cast<UINT>(indices.size());
+	
+	auto geo = std::make_unique<MeshGeometry>();
+	geo->name = "shapeGeo";
+	
+	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->vertexBufferCPU));
+	
 }
 
 
