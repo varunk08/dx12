@@ -19,6 +19,8 @@ using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
 
+namespace DrawBox
+{
 // ==========================================================================================
 // Types used by this demo
 struct Vertex
@@ -88,11 +90,13 @@ struct MeshGeometry
     }
 };
 
+
 // ==========================================================================================
 // The demo app
 class BasicBox : public BaseApp
 {
 public:
+	
     BasicBox(HINSTANCE hInstance);
 
     // tell mr. compiler not to generate these default functions
@@ -528,6 +532,7 @@ void BasicBox::BuildConstantBuffers()
     m_d3dDevice->CreateConstantBufferView(&cbvDesc, m_pCbvHeap->GetCPUDescriptorHandleForHeapStart());
 }
 
+}
 // ====================================================================================================================
 int WINAPI WinMain(HINSTANCE hInstance,
                    HINSTANCE hPrevInstance,
@@ -539,7 +544,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
     _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 #endif
 
-    BasicBox theApp(hInstance);
+    DrawBox::BasicBox theApp(hInstance);
     int retCode = 0;
 
     if (theApp.Initialize() == true)
@@ -553,3 +558,4 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
     return retCode;
 }
+

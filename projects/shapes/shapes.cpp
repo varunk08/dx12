@@ -13,6 +13,7 @@
 #include "../common/BaseUtil.h"
 #include "../common/d3dx12.h"
 #include "../common/GeometryGenerator.h"
+#include "../common/MathHelper.h"
 
 #include "FrameResource.h"
 
@@ -20,6 +21,21 @@ using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
 
+constexpr unsigned int NumFrameResources = 3;
+
+struct RenderItem
+{
+		RenderItem() = default;
+		
+		XMFLOAT4X4 m_world                       = MathHelper::Identity4x4();
+		int m_numFramesDirty                     = NumFrameResources;
+		UINT m_objCbIndex                        = -1;
+		MeshGeometry* m_pGeo                     = nullptr;
+		D3D12_PRIMITIVE_TOPOLOGY m_primitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		UINT m_indexCount                        = 0;
+		UINT m_startIndexLocation                = 0;
+		INT m_baseVertexLocation                 = 0;
+};
 
 class ShapesDemo : public BaseApp
 {
@@ -34,9 +50,13 @@ private:
     void ShapesBuildRootSignature();
     void ShapesBuildShadersAndInputLayout();
     void ShapesBuildShapeGeometry();
+	void ShapesBuildRenderItems();
 
-    std::vector<D3D12_INPUT_ELEMENT_DESC> m_inputLayout;
-    std::unordered_map<std::string, ComPtr<ID3DBlob>> m_shaders;
+    std::vector<D3D12_INPUT_ELEMENT_DESC>                          m_inputLayout;
+    std::unordered_map<std::string, ComPtr<ID3DBlob>>              m_shaders;
+	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> m_geometries;
+	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>>   m_psos;
+	
     ComPtr<ID3D12RootSignature> m_rootSignature = nullptr;
 };
 
@@ -50,6 +70,8 @@ bool ShapesDemo::Initialize()
         ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
 
         ShapesBuildRootSignature();
+		ShapesBuildShadersAndInputLayout();
+		ShapesBuildShapeGeometry();
     }
 
 
@@ -138,10 +160,10 @@ void ShapesDemo::ShapesBuildShapeGeometry()
 	MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 3);
 	
 	UINT boxVertexOffset = 0;
-	UINT boxIndexOffset = 0;
+	UINT boxIndexOffset  = 0;
 	
 	SubmeshGeometry boxSubmesh;
-	boxSubmesh.indexCount = static_cast<UINT>(box.m_indices32.size());
+	boxSubmesh.indexCount         = static_cast<UINT>(box.m_indices32.size());
 	boxSubmesh.startIndexLocation = boxIndexOffset;
 	boxSubmesh.baseVertexLocation = boxVertexOffset;
 	
@@ -162,13 +184,40 @@ void ShapesDemo::ShapesBuildShapeGeometry()
 	const UINT vbByteSize = static_cast<UINT>(vertices.size());
 	const UINT ibByteSize = static_cast<UINT>(indices.size());
 	
-	auto geo = std::make_unique<MeshGeometry>();
+	auto geo  = std::make_unique<MeshGeometry>();
 	geo->name = "shapeGeo";
 	
 	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->vertexBufferCPU));
+	CopyMemory(geo->vertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
 	
+	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->indexBufferCPU));
+	CopyMemory(geo->indexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+	
+	geo->vertexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+														 m_commandList.Get(),
+														 vertices.data(),
+														 vbByteSize,
+														 geo->vertexBufferUploader);
+														 
+	geo->indexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+														 m_commandList.Get(),
+														 indices.data(),
+														 ibByteSize,
+														 geo->indexBufferUploader);													 
+	
+	geo->vertexByteStride     = sizeof(Vertex);
+	geo->vertexBufferByteSize = vbByteSize;
+	geo->indexFormat          = DXGI_FORMAT_R16_UINT;
+	geo->indexBufferByteSize  = ibByteSize;	
+	geo->drawArgs["box"]      = boxSubmesh;
+	
+	m_geometries[geo->name] = std::move(geo);
 }
 
+void ShapesDemo::ShapesBuildRenderItems()
+{
+	auto boxItem = std::make_unique<RenderItem>();
+}
 
 // Write the win main func here
 int WINAPI WinMain(HINSTANCE hInstance,

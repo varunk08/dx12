@@ -23,15 +23,18 @@ public:
         m_tangentU(t),
         m_texC(uv)
         {}
+
     Vertex(
         float px, float py, float pz, 
         float nx, float ny, float nz,
         float tx, float ty, float tz,
-        float u, float v) : 
-        m_position(px,py,pz), 
+        float u, float v)
+		: 
+        m_position(px,py,pz),
         m_normal(nx,ny,nz),
         m_tangentU(tx, ty, tz), 
-        m_texC(u,v){}
+        m_texC(u,v)
+		{}
 
     DirectX::XMFLOAT3 m_position;
     DirectX::XMFLOAT3 m_normal;
