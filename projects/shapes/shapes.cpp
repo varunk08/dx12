@@ -27,14 +27,14 @@ struct RenderItem
 {
 		RenderItem() = default;
 		
-		XMFLOAT4X4 m_world                       = MathHelper::Identity4x4();
-		int m_numFramesDirty                     = NumFrameResources;
-		UINT m_objCbIndex                        = -1;
-		MeshGeometry* m_pGeo                     = nullptr;
+		XMFLOAT4X4               m_world = MathHelper::Identity4x4();
+		int                      m_numFramesDirty = NumFrameResources;
+		UINT                     m_objCbIndex = -1;
+		MeshGeometry*            m_pGeo = nullptr;
 		D3D12_PRIMITIVE_TOPOLOGY m_primitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-		UINT m_indexCount                        = 0;
-		UINT m_startIndexLocation                = 0;
-		INT m_baseVertexLocation                 = 0;
+		UINT                     m_indexCount                        = 0;
+		UINT                     m_startIndexLocation                = 0;
+		INT                      m_baseVertexLocation                 = 0;
 };
 
 class ShapesDemo : public BaseApp
@@ -52,6 +52,8 @@ private:
     void ShapesBuildShapeGeometry();
 	void ShapesBuildRenderItems();
 
+	std::vector<RenderItem*>									   m_opaqueItems;
+	std::vector<std::unique_ptr<RenderItem>>                       m_allRenderItems;
     std::vector<D3D12_INPUT_ELEMENT_DESC>                          m_inputLayout;
     std::unordered_map<std::string, ComPtr<ID3DBlob>>              m_shaders;
 	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> m_geometries;
@@ -217,6 +219,17 @@ void ShapesDemo::ShapesBuildShapeGeometry()
 void ShapesDemo::ShapesBuildRenderItems()
 {
 	auto boxItem = std::make_unique<RenderItem>();
+	XMStoreFloat4x4(&boxItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
+	boxItem->m_objCbIndex         = 0;
+	boxItem->m_pGeo               = m_geometries["shapeGeo"].get();
+	boxItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	boxItem->m_indexCount         = boxItem->m_pGeo->drawArgs["box"].indexCount;
+	boxItem->m_startIndexLocation = boxItem->m_pGeo->drawArgs["box"].startIndexLocation;
+	boxItem->m_baseVertexLocation = boxItem->m_pGeo->drawArgs["box"].baseVertexLocation;
+	m_allRenderItems.push_back(std::move(boxItem));
+	
+	for(auto& e : m_allRenderItems)
+		m_opaqueItems.push_back(e.get());
 }
 
 // Write the win main func here
