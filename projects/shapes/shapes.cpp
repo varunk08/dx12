@@ -21,8 +21,10 @@ using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
 
+// ====================================================================================================================
 constexpr unsigned int NumFrameResources = 3;
 
+// ====================================================================================================================
 struct RenderItem
 {
 		RenderItem() = default;
@@ -37,6 +39,7 @@ struct RenderItem
 		INT                      m_baseVertexLocation                 = 0;
 };
 
+// ====================================================================================================================
 class ShapesDemo : public BaseApp
 {
 public:
@@ -51,18 +54,24 @@ private:
     void ShapesBuildShadersAndInputLayout();
     void ShapesBuildShapeGeometry();
 	void ShapesBuildRenderItems();
+    void ShapesBuildFrameResources();
+    void ShapesBuildDescriptorHeaps();
+    void ShapesBuildConstBufferViews();
+    void ShapesBuildPsos();
 
+    std::vector<std::unique_ptr<FrameResource::FrameResource>>     m_frameResources;
 	std::vector<RenderItem*>									   m_opaqueItems;
 	std::vector<std::unique_ptr<RenderItem>>                       m_allRenderItems;
     std::vector<D3D12_INPUT_ELEMENT_DESC>                          m_inputLayout;
     std::unordered_map<std::string, ComPtr<ID3DBlob>>              m_shaders;
 	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> m_geometries;
-	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>>   m_psos;
-	
-    ComPtr<ID3D12RootSignature> m_rootSignature = nullptr;
+	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>>   m_psos;	
+    ComPtr<ID3D12RootSignature>                                    m_rootSignature = nullptr;
+    ComPtr<ID3D12DescriptorHeap>                                   m_cbvHeap = nullptr;
+    UINT                                                           m_passCbvOffset = 0;
 };
 
-
+// ====================================================================================================================
 bool ShapesDemo::Initialize()
 {
     bool result = BaseApp::Initialize();
@@ -74,33 +83,41 @@ bool ShapesDemo::Initialize()
         ShapesBuildRootSignature();
 		ShapesBuildShadersAndInputLayout();
 		ShapesBuildShapeGeometry();
-    }
+        ShapesBuildFrameResources();
+        ShapesBuildDescriptorHeaps();
+        ShapesBuildConstBufferViews();
+        ShapesBuildPsos();
 
+        ThrowIfFailed(m_commandList->Close());
+
+        ID3D12CommandList* cmdLists[] = { m_commandList.Get() };
+        m_commandQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
+        FlushCommandQueue();
+    }
 
     return result;
 }
 
-
+// ====================================================================================================================
 ShapesDemo::ShapesDemo(HINSTANCE hInstance)
 :
 BaseApp(hInstance)
 {
 }
 
-
-
+// ====================================================================================================================
 void ShapesDemo::Update(const BaseTimer& gt)
 {
 
 }
 
-
+// ====================================================================================================================
 void ShapesDemo::Draw(const BaseTimer& gt)
 {
 
 }
 
-
+// ====================================================================================================================
 void ShapesDemo::ShapesBuildRootSignature()
 {
     // Create a couple of "descriptor range"s. These map registers in the shader to the
@@ -142,7 +159,7 @@ void ShapesDemo::ShapesBuildRootSignature()
                                                    IID_PPV_ARGS(m_rootSignature.GetAddressOf())));
 }
 
-
+// ====================================================================================================================
 void ShapesDemo::ShapesBuildShadersAndInputLayout()
 {
     m_shaders["standardVS"] = BaseUtil::CompileShader(L"shaders\\colors.hlsl", nullptr, "VS", "vs_5_1");
@@ -155,7 +172,7 @@ void ShapesDemo::ShapesBuildShadersAndInputLayout()
     };
 }
 
-
+// ====================================================================================================================
 void ShapesDemo::ShapesBuildShapeGeometry()
 {
     GeometryGenerator geoGen;
@@ -216,6 +233,7 @@ void ShapesDemo::ShapesBuildShapeGeometry()
 	m_geometries[geo->name] = std::move(geo);
 }
 
+// ====================================================================================================================
 void ShapesDemo::ShapesBuildRenderItems()
 {
 	auto boxItem = std::make_unique<RenderItem>();
@@ -232,6 +250,110 @@ void ShapesDemo::ShapesBuildRenderItems()
 		m_opaqueItems.push_back(e.get());
 }
 
+// ====================================================================================================================
+void ShapesDemo::ShapesBuildFrameResources()
+{
+    for (int i = 0; i < NumFrameResources; i++)
+    {
+        m_frameResources.push_back(
+            std::make_unique<FrameResource::FrameResource>(m_d3dDevice.Get(),
+                                                           1,
+                                                           static_cast<UINT>(m_allRenderItems.size())));
+    }
+}
+
+// ====================================================================================================================
+void ShapesDemo::ShapesBuildDescriptorHeaps()
+{
+    UINT objCount = (UINT)m_opaqueItems.size();
+    UINT numDescriptors = (objCount + 1) * NumFrameResources;
+    m_passCbvOffset = objCount * NumFrameResources;
+
+    D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = { };
+    cbvHeapDesc.NumDescriptors             = numDescriptors;
+    cbvHeapDesc.Type                       = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    cbvHeapDesc.Flags                      = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    cbvHeapDesc.NodeMask                   = 0;
+    ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&m_cbvHeap)));
+}
+
+
+// ====================================================================================================================
+void ShapesDemo::ShapesBuildConstBufferViews()
+{
+    UINT objCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::ObjectConstants));
+    UINT objCount      = (UINT) m_opaqueItems.size();
+
+    for (int frameIndex = 0; frameIndex < NumFrameResources; ++frameIndex)
+    {
+        auto objectCb = m_frameResources[frameIndex]->m_objCb->Resource();
+        for (UINT i = 0; i < objCount; ++i)
+        {
+            D3D12_GPU_VIRTUAL_ADDRESS cbAddress = objectCb->GetGPUVirtualAddress();
+            cbAddress += i * static_cast<UINT64>(objCbByteSize);
+
+            int heapIndex = frameIndex * objCount + i;
+            auto handle = CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvHeap->GetCPUDescriptorHandleForHeapStart());
+            handle.Offset(heapIndex, static_cast<UINT>(m_cbvSrvUavDescriptorSize));
+
+            D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+            cbvDesc.BufferLocation                  = cbAddress;
+            cbvDesc.SizeInBytes                     = objCbByteSize;
+
+            m_d3dDevice->CreateConstantBufferView(&cbvDesc, handle);
+        }
+    }
+
+    UINT passCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::PassConstants));
+
+    for (int frameIndex = 0; frameIndex < NumFrameResources; ++frameIndex)
+    {
+        auto passCb = m_frameResources[frameIndex]->m_passCb->Resource();
+        D3D12_GPU_VIRTUAL_ADDRESS cbAddress = passCb->GetGPUVirtualAddress();
+
+        int heapIndex = m_passCbvOffset + frameIndex;
+        auto handle   = CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvHeap->GetCPUDescriptorHandleForHeapStart());
+        handle.Offset(heapIndex, static_cast<UINT>(m_cbvSrvUavDescriptorSize));
+
+        D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+        cbvDesc.BufferLocation                  = cbAddress;
+        cbvDesc.SizeInBytes                     = passCbByteSize;
+
+        m_d3dDevice->CreateConstantBufferView(&cbvDesc, handle);
+    }
+}
+
+// ====================================================================================================================
+void ShapesDemo::ShapesBuildPsos()
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc = { };
+
+    ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    opaquePsoDesc.InputLayout = { m_inputLayout.data(), (UINT) m_inputLayout.size() };
+    opaquePsoDesc.pRootSignature = m_rootSignature.Get();
+    opaquePsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(m_shaders["standardVS"]->GetBufferPointer()), m_shaders["standardVS"]->GetBufferSize()
+    };
+    opaquePsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(m_shaders["opaquePS"]->GetBufferPointer(), m_shaders["opaquePS"]->GetBufferSize())
+    };
+    opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.SampleMask = UINT_MAX;
+    opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    opaquePsoDesc.NumRenderTargets = 1;
+    opaquePsoDesc.RTVFormats[0] = m_backBufferFormat;
+    opaquePsoDesc.SampleDesc.Count = m_4xMsaaEn ? 4 : 1;
+    opaquePsoDesc.SampleDesc.Quality = m_4xMsaaEn ? (m_4xMsaaQuality - 1) : 0;
+    opaquePsoDesc.DSVFormat = m_depthStencilFormat;
+    ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&m_psos["opaque"])));
+}
+
+// ====================================================================================================================
 // Write the win main func here
 int WINAPI WinMain(HINSTANCE hInstance,
                    HINSTANCE hPrevInstance,

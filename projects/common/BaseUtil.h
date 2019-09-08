@@ -21,6 +21,9 @@
 #include <DirectXMath.h>
 #include <DirectXCollision.h>
 
+#include "d3dx12.h"
+#include "MathHelper.h"
+
 namespace util
 {
 
