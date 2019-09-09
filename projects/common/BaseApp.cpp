@@ -55,7 +55,7 @@ void BaseApp::OnResize()
                                              DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
 
     m_currBackBuffer = 0;
-    
+
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart());
     for (UINT i = 0; i < SwapChainBufferCount; i++)
     {
@@ -73,11 +73,11 @@ void BaseApp::OnResize()
     depthStencilDesc.DepthOrArraySize = 1;
     depthStencilDesc.MipLevels        = 1;
 
-    // Correction 11/12/2016: SSAO chapter requires an SRV to the depth buffer to read from 
+    // Correction 11/12/2016: SSAO chapter requires an SRV to the depth buffer to read from
     // the depth buffer.  Therefore, because we need to create two views to the same resource:
     //   1. SRV format: DXGI_FORMAT_R24_UNORM_X8_TYPELESS
     //   2. DSV Format: DXGI_FORMAT_D24_UNORM_S8_UINT
-    // we need to create the depth buffer resource with a typeless format.  
+    // we need to create the depth buffer resource with a typeless format.
     depthStencilDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
 
     depthStencilDesc.SampleDesc.Count   = m_4xMsaaEn ? 4 : 1;
@@ -108,7 +108,7 @@ void BaseApp::OnResize()
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_depthStencilBuffer.Get(),
                                    D3D12_RESOURCE_STATE_COMMON,
                                    D3D12_RESOURCE_STATE_DEPTH_WRITE));
-    
+
     // Execute the resize commands.
     ThrowIfFailed(m_commandList->Close());
     ID3D12CommandList* cmdsLists[] = { m_commandList.Get() };
@@ -133,6 +133,7 @@ float BaseApp::AspectRatio() const
     return static_cast<float>(m_clientWidth) / m_clientHeight;
 }
 
+// ====================================================================================================================
 int BaseApp::Run()
 {
     MSG msg = {};
@@ -165,10 +166,11 @@ int BaseApp::Run()
     return static_cast<int>(msg.wParam);
 }
 
+// ====================================================================================================================
 bool BaseApp::Initialize()
 {
     bool result = true;
-    
+
     result = InitMainWindow();
     if (result == true)
     {
@@ -240,13 +242,13 @@ LRESULT BaseApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 }
                 else if (m_resizing)
                 {
-                    // If user is dragging the resize bars, we do not resize 
-                    // the buffers here because as the user continuously 
+                    // If user is dragging the resize bars, we do not resize
+                    // the buffers here because as the user continuously
                     // drags the resize bars, a stream of WM_SIZE messages are
                     // sent to the window, and it would be pointless (and slow)
                     // to resize for each WM_SIZE message received from dragging
-                    // the resize bars.  So instead, we reset after the user is 
-                    // done resizing the window and releases the resize bars, which 
+                    // the resize bars.  So instead, we reset after the user is
+                    // done resizing the window and releases the resize bars, which
                     // sends a WM_EXITSIZEMOVE message.
                 }
                 else // API call such as SetWindowPos or mSwapChain->SetFullscreenState.
@@ -359,7 +361,7 @@ bool BaseApp::InitMainWindow()
 bool BaseApp::InitDirect3D()
 {
     bool ret = true;
-#if defined(DEBUG) || defined(_DEBUG) 
+#if defined(DEBUG) || defined(_DEBUG)
     {
         // Enable the D3D12 debug layer.
         ComPtr<ID3D12Debug> debugController;
@@ -416,7 +418,7 @@ bool BaseApp::InitDirect3D()
         MessageBoxW(0, L"Dxgi factory create failed!", 0, 0);
         ret = false;
     }
-    
+
     return ret;
 }
 
@@ -453,13 +455,13 @@ void BaseApp::FlushCommandQueue()
     m_currentFence++;
 
     ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), m_currentFence));
-    
+
     // Wait until the GPU has completed commands up to this fence point.
     if (m_fence->GetCompletedValue() < m_currentFence)
     {
         HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
 
-        // Fire event when GPU hits current fence.  
+        // Fire event when GPU hits current fence.
         ThrowIfFailed(m_fence->SetEventOnCompletion(m_currentFence, eventHandle));
 
         // Wait until the GPU hits current fence event is fired.
@@ -489,7 +491,7 @@ void BaseApp::CreateCommandObjects()
                                                  nullptr,                   // Initial PipelineStateObject
                                                  IID_PPV_ARGS(m_commandList.GetAddressOf())));
 
-    // Start off in a closed state.  This is because the first time we refer 
+    // Start off in a closed state.  This is because the first time we refer
     // to the command list we will Reset it, and it needs to be closed before
     // calling Reset.
     m_commandList->Close();

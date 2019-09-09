@@ -28,7 +28,7 @@ constexpr unsigned int NumFrameResources = 3;
 struct RenderItem
 {
         RenderItem() = default;
-        
+
         XMFLOAT4X4               m_world = MathHelper::Identity4x4();
         int                      m_numFramesDirty = NumFrameResources;
         UINT                     m_objCbIndex = -1;
@@ -50,6 +50,8 @@ private:
     void Update(const BaseTimer& gt);
     void Draw(const BaseTimer& gt);
 
+    void OnKeyboardInput(const BaseTimer& gt);
+
     void ShapesBuildRootSignature();
     void ShapesBuildShadersAndInputLayout();
     void ShapesBuildShapeGeometry();
@@ -59,13 +61,14 @@ private:
     void ShapesBuildConstBufferViews();
     void ShapesBuildPsos();
 
+    bool                                                           m_isWireFrame = false;
     std::vector<std::unique_ptr<FrameResource::FrameResource>>     m_frameResources;
     std::vector<RenderItem*>									   m_opaqueItems;
     std::vector<std::unique_ptr<RenderItem>>                       m_allRenderItems;
     std::vector<D3D12_INPUT_ELEMENT_DESC>                          m_inputLayout;
     std::unordered_map<std::string, ComPtr<ID3DBlob>>              m_shaders;
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> m_geometries;
-    std::unordered_map<std::string, ComPtr<ID3D12PipelineState>>   m_psos;	
+    std::unordered_map<std::string, ComPtr<ID3D12PipelineState>>   m_psos;
     ComPtr<ID3D12RootSignature>                                    m_rootSignature = nullptr;
     ComPtr<ID3D12DescriptorHeap>                                   m_cbvHeap = nullptr;
     UINT                                                           m_passCbvOffset = 0;
@@ -108,6 +111,7 @@ BaseApp(hInstance)
 // ====================================================================================================================
 void ShapesDemo::Update(const BaseTimer& gt)
 {
+    OnKeyboardInput(gt);
 
 }
 
@@ -115,6 +119,19 @@ void ShapesDemo::Update(const BaseTimer& gt)
 void ShapesDemo::Draw(const BaseTimer& gt)
 {
 
+}
+
+// ====================================================================================================================
+void ShapesDemo::OnKeyboardInput(const BaseTimer& gt)
+{
+    if (GetAsyncKeyState('1') & 0x8000)
+    {
+        m_isWireFrame = true;
+    }
+    else
+    {
+        m_isWireFrame = false;
+    }
 }
 
 // ====================================================================================================================
@@ -165,7 +182,7 @@ void ShapesDemo::ShapesBuildShadersAndInputLayout()
     m_shaders["standardVS"] = BaseUtil::CompileShader(L"shaders\\colors.hlsl", nullptr, "VS", "vs_5_1");
     m_shaders["opaquePS"]   = BaseUtil::CompileShader(L"shaders\\colors.hlsl", nullptr, "PS", "ps_5_1");
 
-    m_inputLayout = 
+    m_inputLayout =
     {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
@@ -177,59 +194,59 @@ void ShapesDemo::ShapesBuildShapeGeometry()
 {
     GeometryGenerator geoGen;
     MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 3);
-    
+
     UINT boxVertexOffset = 0;
     UINT boxIndexOffset  = 0;
-    
+
     SubmeshGeometry boxSubmesh;
     boxSubmesh.indexCount         = static_cast<UINT>(box.m_indices32.size());
     boxSubmesh.startIndexLocation = boxIndexOffset;
     boxSubmesh.baseVertexLocation = boxVertexOffset;
-    
+
     auto totalVertexCount = box.m_vertices.size();
-    
+
     std::vector<FrameResource::Vertex> vertices(totalVertexCount);
-    
+
     UINT k = 0;
     for (size_t i = 0; i < box.m_vertices.size(); ++i, ++k)
     {
         vertices[k].pos = box.m_vertices[i].m_position;
         vertices[k].color = XMFLOAT4(DirectX::Colors::DarkGreen);
     }
-    
+
     std::vector<std::uint16_t> indices;
     indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
-    
+
     const UINT vbByteSize = static_cast<UINT>(vertices.size());
     const UINT ibByteSize = static_cast<UINT>(indices.size());
-    
+
     auto geo  = std::make_unique<MeshGeometry>();
     geo->name = "shapeGeo";
-    
+
     ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->vertexBufferCPU));
     CopyMemory(geo->vertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-    
+
     ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->indexBufferCPU));
     CopyMemory(geo->indexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-    
+
     geo->vertexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
                                                          m_commandList.Get(),
                                                          vertices.data(),
                                                          vbByteSize,
                                                          geo->vertexBufferUploader);
-                                                         
+
     geo->indexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
                                                          m_commandList.Get(),
                                                          indices.data(),
                                                          ibByteSize,
-                                                         geo->indexBufferUploader);													 
-    
+                                                         geo->indexBufferUploader);
+
     geo->vertexByteStride     = sizeof(Vertex);
     geo->vertexBufferByteSize = vbByteSize;
     geo->indexFormat          = DXGI_FORMAT_R16_UINT;
-    geo->indexBufferByteSize  = ibByteSize;	
+    geo->indexBufferByteSize  = ibByteSize;
     geo->drawArgs["box"]      = boxSubmesh;
-    
+
     m_geometries[geo->name] = std::move(geo);
 }
 
@@ -245,7 +262,7 @@ void ShapesDemo::ShapesBuildRenderItems()
     boxItem->m_startIndexLocation = boxItem->m_pGeo->drawArgs["box"].startIndexLocation;
     boxItem->m_baseVertexLocation = boxItem->m_pGeo->drawArgs["box"].baseVertexLocation;
     m_allRenderItems.push_back(std::move(boxItem));
-    
+
     for(auto& e : m_allRenderItems)
         m_opaqueItems.push_back(e.get());
 }
@@ -365,7 +382,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 #endif
 
     ShapesDemo demoApp(hInstance);
-    
+
     int retCode = 0;
     if (demoApp.Initialize() == 0)
     {
