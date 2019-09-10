@@ -47,6 +47,7 @@ public:
     bool Initialize();
 protected:
 private:
+    void OnResize() override;
     void Update(const BaseTimer& gt);
     void Draw(const BaseTimer& gt);
 
@@ -124,6 +125,15 @@ BaseApp(hInstance)
 }
 
 // ====================================================================================================================
+void ShapesDemo::OnResize()
+{
+    BaseApp::OnResize();
+
+    XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+    XMStoreFloat4x4(&m_proj, P);
+}
+
+// ====================================================================================================================
 void ShapesDemo::Update(const BaseTimer& gt)
 {
     OnKeyboardInput(gt);
@@ -166,7 +176,7 @@ void ShapesDemo::Draw(const BaseTimer& gt)
                                    &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
                                    D3D12_RESOURCE_STATE_PRESENT,
                                    D3D12_RESOURCE_STATE_RENDER_TARGET));
-    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightBlue, 0, nullptr);
+    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::AntiqueWhite, 0, nullptr);
     m_commandList->ClearDepthStencilView(DepthStencilView(),
                                          D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
                                          1.0f,
@@ -185,7 +195,7 @@ void ShapesDemo::Draw(const BaseTimer& gt)
     m_commandList->SetGraphicsRootDescriptorTable(1, passCbvHandle);
 
     DrawRenderItems(m_commandList.Get(), m_opaqueItems);
-    
+
     m_commandList->ResourceBarrier(1,
                                    &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
                                    D3D12_RESOURCE_STATE_RENDER_TARGET,
@@ -223,9 +233,9 @@ void ShapesDemo::UpdateCamera(const BaseTimer& gt)
     m_eyePos.z = m_radius * sinf(m_phi) * sinf(m_theta);
     m_eyePos.y = m_radius * cosf(m_phi);
 
-    XMVECTOR pos = XMVectorSet(m_eyePos.x, m_eyePos.y, m_eyePos.z, 1.0f);
+    XMVECTOR pos    = XMVectorSet(m_eyePos.x, m_eyePos.y, m_eyePos.z, 1.0f);
     XMVECTOR target = XMVectorZero();
-    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    XMVECTOR up     = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
     XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
     XMStoreFloat4x4(&m_view, view);
@@ -314,8 +324,8 @@ void ShapesDemo::ShapesBuildShapeGeometry()
     std::vector<std::uint16_t> indices;
     indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
 
-    const UINT vbByteSize = static_cast<UINT>(vertices.size());
-    const UINT ibByteSize = static_cast<UINT>(indices.size());
+    const UINT vbByteSize = static_cast<UINT>(vertices.size()) * sizeof(Vertex);
+    const UINT ibByteSize = static_cast<UINT>(indices.size()) * sizeof(std::uint16_t);
 
     auto geo  = std::make_unique<MeshGeometry>();
     geo->name = "shapeGeo";
@@ -455,17 +465,17 @@ void ShapesDemo::ShapesBuildPsos()
         reinterpret_cast<BYTE*>(m_shaders["opaquePS"]->GetBufferPointer()),
         m_shaders["opaquePS"]->GetBufferSize()
     };
-    opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.RasterizerState          = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
     opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-    opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-    opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-    opaquePsoDesc.SampleMask = UINT_MAX;
-    opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    opaquePsoDesc.NumRenderTargets = 1;
-    opaquePsoDesc.RTVFormats[0] = m_backBufferFormat;
-    opaquePsoDesc.SampleDesc.Count = m_4xMsaaEn ? 4 : 1;
-    opaquePsoDesc.SampleDesc.Quality = m_4xMsaaEn ? (m_4xMsaaQuality - 1) : 0;
-    opaquePsoDesc.DSVFormat = m_depthStencilFormat;
+    opaquePsoDesc.BlendState               = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.DepthStencilState        = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.SampleMask               = UINT_MAX;
+    opaquePsoDesc.PrimitiveTopologyType    = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    opaquePsoDesc.NumRenderTargets         = 1;
+    opaquePsoDesc.RTVFormats[0]            = m_backBufferFormat;
+    opaquePsoDesc.SampleDesc.Count         = m_4xMsaaEn ? 4 : 1;
+    opaquePsoDesc.SampleDesc.Quality       = m_4xMsaaEn ? (m_4xMsaaQuality - 1) : 0;
+    opaquePsoDesc.DSVFormat                = m_depthStencilFormat;
     ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&m_psos["opaque"])));
 }
 
@@ -513,9 +523,9 @@ void ShapesDemo::UpdateMainPassCB(const BaseTimer& timer)
     XMMATRIX view = XMLoadFloat4x4(&m_view);
     XMMATRIX proj = XMLoadFloat4x4(&m_proj);
 
-    XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-    XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
-    XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+    XMMATRIX viewProj    = XMMatrixMultiply(view, proj);
+    XMMATRIX invView     = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+    XMMATRIX invProj     = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
     XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
 
     XMStoreFloat4x4(&m_mainPassCB.view, XMMatrixTranspose(view));
@@ -525,13 +535,13 @@ void ShapesDemo::UpdateMainPassCB(const BaseTimer& timer)
     XMStoreFloat4x4(&m_mainPassCB.viewProj, XMMatrixTranspose(viewProj));
     XMStoreFloat4x4(&m_mainPassCB.invViewProj, XMMatrixTranspose(invViewProj));
 
-    m_mainPassCB.eyePosW = m_eyePos;
-    m_mainPassCB.renderTargetSize = XMFLOAT2(static_cast<float>(m_clientWidth), static_cast<float>(m_clientHeight));
+    m_mainPassCB.eyePosW             = m_eyePos;
+    m_mainPassCB.renderTargetSize    = XMFLOAT2(static_cast<float>(m_clientWidth), static_cast<float>(m_clientHeight));
     m_mainPassCB.invRenderTargetSize = XMFLOAT2(1.0f / m_clientWidth, 1.0f / m_clientHeight);
-    m_mainPassCB.nearZ = 1.0f;
-    m_mainPassCB.farZ = 1000.0f;
-    m_mainPassCB.totalTime = timer.TotalTimeInSecs();
-    m_mainPassCB.deltaTime = timer.DeltaTimeInSecs();
+    m_mainPassCB.nearZ               = 1.0f;
+    m_mainPassCB.farZ                = 1000.0f;
+    m_mainPassCB.totalTime           = timer.TotalTimeInSecs();
+    m_mainPassCB.deltaTime           = timer.DeltaTimeInSecs();
 
     auto currPassCB = m_currFrameResource->m_passCb.get();
     currPassCB->CopyData(0, m_mainPassCB);
