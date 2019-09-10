@@ -300,7 +300,7 @@ void ShapesDemo::ShapesBuildShadersAndInputLayout()
 void ShapesDemo::ShapesBuildShapeGeometry()
 {
     GeometryGenerator geoGen;
-    MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 3);
+    MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 0);
 
     UINT boxVertexOffset = 0;
     UINT boxIndexOffset  = 0;
