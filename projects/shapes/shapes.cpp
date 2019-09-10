@@ -325,7 +325,7 @@ void ShapesDemo::ShapesBuildShapeGeometry()
     indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
 
     const UINT vbByteSize = static_cast<UINT>(vertices.size()) * sizeof(Vertex);
-    const UINT ibByteSize = static_cast<UINT>(indices.size()) * sizeof(std::uint16_t);
+    const UINT ibByteSize = static_cast<UINT>(indices.size())  * sizeof(std::uint16_t);
 
     auto geo  = std::make_unique<MeshGeometry>();
     geo->name = "shapeGeo";

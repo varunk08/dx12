@@ -3,6 +3,7 @@
 
 using namespace DirectX;
 
+// ====================================================================================================================
 Vertex GeometryGenerator::MidPoint(const Vertex& v0, const Vertex& v1)
 {
     return Vertex();
@@ -72,15 +73,17 @@ void GeometryGenerator::SubDivide(
     }
 }
 
+// ====================================================================================================================
 MeshData GeometryGenerator::CreateBox(
-    float width,
-    float height,
-    float depth,
+    float  width,
+    float  height,
+    float  depth,
     uint32 numSubdivisions)
 {
-    MeshData meshData;
+    MeshData     meshData;
     const uint32 NumTotalCoords = 3 * 8;
-    Vertex v[NumTotalCoords];
+    Vertex       v[NumTotalCoords];
+
     float w2 = 0.5f * width;
     float h2 = 0.5f * height;
     float d2 = 0.5f * depth;
