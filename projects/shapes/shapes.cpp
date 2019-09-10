@@ -51,6 +51,9 @@ private:
     void Draw(const BaseTimer& gt);
 
     void OnKeyboardInput(const BaseTimer& gt);
+    void UpdateCamera(const BaseTimer& gt);
+    void UpdateObjectCBs(const BaseTimer& gt);
+    void UpdateMainPassCB(const BaseTimer& timer);
 
     void ShapesBuildRootSignature();
     void ShapesBuildShadersAndInputLayout();
@@ -60,7 +63,9 @@ private:
     void ShapesBuildDescriptorHeaps();
     void ShapesBuildConstBufferViews();
     void ShapesBuildPsos();
+    void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& rItems);
 
+    FrameResource::PassConstants                                   m_mainPassCB;
     bool                                                           m_isWireFrame = false;
     std::vector<std::unique_ptr<FrameResource::FrameResource>>     m_frameResources;
     std::vector<RenderItem*>									   m_opaqueItems;
@@ -72,6 +77,15 @@ private:
     ComPtr<ID3D12RootSignature>                                    m_rootSignature = nullptr;
     ComPtr<ID3D12DescriptorHeap>                                   m_cbvHeap = nullptr;
     UINT                                                           m_passCbvOffset = 0;
+    XMFLOAT3                                                       m_eyePos = {0.0f, 0.0f, 0.0f};
+    XMFLOAT4X4                                                     m_view = MathHelper::Identity4x4();
+    XMFLOAT4X4                                                     m_proj = MathHelper::Identity4x4();
+    float                                                          m_theta = 1.5f * XM_PI;
+    float                                                          m_phi = 0.2f * XM_PI;
+    float                                                          m_radius = 15.0f;
+    POINT                                                          m_lastMousePos;
+    int                                                            m_currFrameResourceIndex = 0;
+    FrameResource::FrameResource*                                  m_currFrameResource = nullptr;
 };
 
 // ====================================================================================================================
@@ -86,6 +100,7 @@ bool ShapesDemo::Initialize()
         ShapesBuildRootSignature();
         ShapesBuildShadersAndInputLayout();
         ShapesBuildShapeGeometry();
+        ShapesBuildRenderItems();
         ShapesBuildFrameResources();
         ShapesBuildDescriptorHeaps();
         ShapesBuildConstBufferViews();
@@ -112,13 +127,79 @@ BaseApp(hInstance)
 void ShapesDemo::Update(const BaseTimer& gt)
 {
     OnKeyboardInput(gt);
+    UpdateCamera(gt);
 
+    m_currFrameResourceIndex = (m_currFrameResourceIndex + 1) % NumFrameResources;
+    m_currFrameResource = m_frameResources[m_currFrameResourceIndex].get();
+
+    if ((m_currFrameResource->m_fence != 0) && (m_fence->GetCompletedValue() < m_currFrameResource->m_fence))
+    {
+        HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
+        ThrowIfFailed(m_fence->SetEventOnCompletion(m_currFrameResource->m_fence, eventHandle));
+        WaitForSingleObject(eventHandle, INFINITE);
+        CloseHandle(eventHandle);
+    }
+
+    UpdateObjectCBs(gt);
+    UpdateMainPassCB(gt);
 }
 
 // ====================================================================================================================
 void ShapesDemo::Draw(const BaseTimer& gt)
 {
+    auto cmdListAlloc = m_currFrameResource->m_cmdListAlloc;
 
+    ThrowIfFailed(cmdListAlloc->Reset());
+
+    if (m_isWireFrame)
+    {
+        ThrowIfFailed(m_commandList->Reset(cmdListAlloc.Get(), m_psos["opaque_wireframe"].Get()));
+    }
+    else
+    {
+        ThrowIfFailed(m_commandList->Reset(cmdListAlloc.Get(), m_psos["opaque"].Get()));
+    }
+
+    m_commandList->RSSetViewports(1, &m_screenViewport);
+    m_commandList->RSSetScissorRects(1, &m_scissorRect);
+    m_commandList->ResourceBarrier(1,
+                                   &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                                   D3D12_RESOURCE_STATE_PRESENT,
+                                   D3D12_RESOURCE_STATE_RENDER_TARGET));
+    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightBlue, 0, nullptr);
+    m_commandList->ClearDepthStencilView(DepthStencilView(),
+                                         D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+                                         1.0f,
+                                         0,
+                                         0,
+                                         nullptr);
+    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
+    ID3D12DescriptorHeap* descriptorHeaps[] = { m_cbvHeap.Get() };
+    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+    m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+
+    int passCbvIndex = m_passCbvOffset + m_currFrameResourceIndex;
+    auto passCbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvHeap->GetGPUDescriptorHandleForHeapStart());
+    passCbvHandle.Offset(passCbvIndex, m_cbvSrvUavDescriptorSize);
+    m_commandList->SetGraphicsRootDescriptorTable(1, passCbvHandle);
+
+    DrawRenderItems(m_commandList.Get(), m_opaqueItems);
+    
+    m_commandList->ResourceBarrier(1,
+                                   &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                                   D3D12_RESOURCE_STATE_RENDER_TARGET,
+                                   D3D12_RESOURCE_STATE_PRESENT));
+
+    ThrowIfFailed(m_commandList->Close());
+    ID3D12CommandList* cmdLists[] = {m_commandList.Get() };
+    m_commandQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
+
+    ThrowIfFailed(m_swapChain->Present(0, 0));
+    m_currBackBuffer = (m_currBackBuffer + 1) % SwapChainBufferCount;
+
+    m_currFrameResource->m_fence = ++ m_currentFence;
+    m_commandQueue->Signal(m_fence.Get(), m_currentFence);
 }
 
 // ====================================================================================================================
@@ -132,6 +213,22 @@ void ShapesDemo::OnKeyboardInput(const BaseTimer& gt)
     {
         m_isWireFrame = false;
     }
+}
+
+
+// ====================================================================================================================
+void ShapesDemo::UpdateCamera(const BaseTimer& gt)
+{
+    m_eyePos.x = m_radius * sinf(m_phi) * cosf(m_theta);
+    m_eyePos.z = m_radius * sinf(m_phi) * sinf(m_theta);
+    m_eyePos.y = m_radius * cosf(m_phi);
+
+    XMVECTOR pos = XMVectorSet(m_eyePos.x, m_eyePos.y, m_eyePos.z, 1.0f);
+    XMVECTOR target = XMVectorZero();
+    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+    XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+    XMStoreFloat4x4(&m_view, view);
 }
 
 // ====================================================================================================================
@@ -179,8 +276,8 @@ void ShapesDemo::ShapesBuildRootSignature()
 // ====================================================================================================================
 void ShapesDemo::ShapesBuildShadersAndInputLayout()
 {
-    m_shaders["standardVS"] = BaseUtil::CompileShader(L"shaders\\colors.hlsl", nullptr, "VS", "vs_5_1");
-    m_shaders["opaquePS"]   = BaseUtil::CompileShader(L"shaders\\colors.hlsl", nullptr, "PS", "ps_5_1");
+    m_shaders["standardVS"] = BaseUtil::CompileShader(L"shaders\\color.hlsl", nullptr, "VS", "vs_5_1");
+    m_shaders["opaquePS"]   = BaseUtil::CompileShader(L"shaders\\color.hlsl", nullptr, "PS", "ps_5_1");
 
     m_inputLayout =
     {
@@ -350,11 +447,13 @@ void ShapesDemo::ShapesBuildPsos()
     opaquePsoDesc.pRootSignature = m_rootSignature.Get();
     opaquePsoDesc.VS =
     {
-        reinterpret_cast<BYTE*>(m_shaders["standardVS"]->GetBufferPointer()), m_shaders["standardVS"]->GetBufferSize()
+        reinterpret_cast<BYTE*>(m_shaders["standardVS"]->GetBufferPointer()),
+        m_shaders["standardVS"]->GetBufferSize()
     };
     opaquePsoDesc.PS =
     {
-        reinterpret_cast<BYTE*>(m_shaders["opaquePS"]->GetBufferPointer(), m_shaders["opaquePS"]->GetBufferSize())
+        reinterpret_cast<BYTE*>(m_shaders["opaquePS"]->GetBufferPointer()),
+        m_shaders["opaquePS"]->GetBufferSize()
     };
     opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
     opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
@@ -371,6 +470,74 @@ void ShapesDemo::ShapesBuildPsos()
 }
 
 // ====================================================================================================================
+void ShapesDemo::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& rItems)
+{
+    UINT objCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::ObjectConstants));
+    auto objectCb = m_currFrameResource->m_objCb->Resource();
+
+    for (size_t i = 0; i < rItems.size(); ++i)
+    {
+        auto ri = rItems[i];
+        cmdList->IASetVertexBuffers(0, 1, &ri->m_pGeo->VertexBufferView());
+        cmdList->IASetIndexBuffer(&ri->m_pGeo->IndexBufferView());
+        cmdList->IASetPrimitiveTopology(ri->m_primitiveType);
+
+        UINT cbvIndex = m_currFrameResourceIndex* (UINT) m_opaqueItems.size() + ri->m_objCbIndex;
+        auto cbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvHeap->GetGPUDescriptorHandleForHeapStart());
+        cbvHandle.Offset(cbvIndex, m_cbvSrvUavDescriptorSize);
+        cmdList->SetGraphicsRootDescriptorTable(0, cbvHandle);
+        cmdList->DrawIndexedInstanced(ri->m_indexCount, 1, ri->m_startIndexLocation, ri->m_baseVertexLocation, 0);
+    }
+}
+
+// ====================================================================================================================
+void ShapesDemo::UpdateObjectCBs(const BaseTimer& timer)
+{
+    auto currObjectCB = m_currFrameResource->m_objCb.get();
+    for (auto& e : m_allRenderItems)
+    {
+        if (e->m_numFramesDirty > 0)
+        {
+            XMMATRIX world = XMLoadFloat4x4(&e->m_world);
+            FrameResource::ObjectConstants objConstants;
+            XMStoreFloat4x4(&objConstants.m_world, XMMatrixTranspose(world));
+            currObjectCB->CopyData(e->m_objCbIndex, objConstants);
+            e->m_numFramesDirty--;
+        }
+    }
+}
+
+// ====================================================================================================================
+void ShapesDemo::UpdateMainPassCB(const BaseTimer& timer)
+{
+    XMMATRIX view = XMLoadFloat4x4(&m_view);
+    XMMATRIX proj = XMLoadFloat4x4(&m_proj);
+
+    XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+    XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+    XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+
+    XMStoreFloat4x4(&m_mainPassCB.view, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&m_mainPassCB.invView, XMMatrixTranspose(invView));
+    XMStoreFloat4x4(&m_mainPassCB.proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&m_mainPassCB.invProj, XMMatrixTranspose(invProj));
+    XMStoreFloat4x4(&m_mainPassCB.viewProj, XMMatrixTranspose(viewProj));
+    XMStoreFloat4x4(&m_mainPassCB.invViewProj, XMMatrixTranspose(invViewProj));
+
+    m_mainPassCB.eyePosW = m_eyePos;
+    m_mainPassCB.renderTargetSize = XMFLOAT2(static_cast<float>(m_clientWidth), static_cast<float>(m_clientHeight));
+    m_mainPassCB.invRenderTargetSize = XMFLOAT2(1.0f / m_clientWidth, 1.0f / m_clientHeight);
+    m_mainPassCB.nearZ = 1.0f;
+    m_mainPassCB.farZ = 1000.0f;
+    m_mainPassCB.totalTime = timer.TotalTimeInSecs();
+    m_mainPassCB.deltaTime = timer.DeltaTimeInSecs();
+
+    auto currPassCB = m_currFrameResource->m_passCb.get();
+    currPassCB->CopyData(0, m_mainPassCB);
+}
+
+// ====================================================================================================================
 // Write the win main func here
 int WINAPI WinMain(HINSTANCE hInstance,
                    HINSTANCE hPrevInstance,
@@ -384,7 +551,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
     ShapesDemo demoApp(hInstance);
 
     int retCode = 0;
-    if (demoApp.Initialize() == 0)
+    if (demoApp.Initialize() == true)
     {
         retCode = demoApp.Run();
     }
