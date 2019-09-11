@@ -300,7 +300,7 @@ void ShapesDemo::ShapesBuildShadersAndInputLayout()
 void ShapesDemo::ShapesBuildShapeGeometry()
 {
     GeometryGenerator geoGen;
-    MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 0);
+    MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 3);
 
     UINT boxVertexOffset = 0;
     UINT boxIndexOffset  = 0;
@@ -318,13 +318,13 @@ void ShapesDemo::ShapesBuildShapeGeometry()
     for (size_t i = 0; i < box.m_vertices.size(); ++i, ++k)
     {
         vertices[k].pos = box.m_vertices[i].m_position;
-        vertices[k].color = XMFLOAT4(DirectX::Colors::DarkGreen);
+        vertices[k].color = XMFLOAT4(DirectX::Colors::Crimson);
     }
 
     std::vector<std::uint16_t> indices;
     indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
 
-    const UINT vbByteSize = static_cast<UINT>(vertices.size()) * sizeof(Vertex);
+    const UINT vbByteSize = static_cast<UINT>(vertices.size()) * sizeof(FrameResource::Vertex);
     const UINT ibByteSize = static_cast<UINT>(indices.size())  * sizeof(std::uint16_t);
 
     auto geo  = std::make_unique<MeshGeometry>();
@@ -348,7 +348,7 @@ void ShapesDemo::ShapesBuildShapeGeometry()
                                                          ibByteSize,
                                                          geo->indexBufferUploader);
 
-    geo->vertexByteStride     = sizeof(Vertex);
+    geo->vertexByteStride     = sizeof(FrameResource::Vertex);
     geo->vertexBufferByteSize = vbByteSize;
     geo->indexFormat          = DXGI_FORMAT_R16_UINT;
     geo->indexBufferByteSize  = ibByteSize;
