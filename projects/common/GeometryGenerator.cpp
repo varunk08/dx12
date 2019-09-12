@@ -1,6 +1,6 @@
 #include "GeometryGenerator.h"
 #include <algorithm>
-
+#include <Windows.h>
 using namespace DirectX;
 
 // ====================================================================================================================
@@ -53,14 +53,18 @@ void GeometryGenerator::SubDivide(
     //  /   \ /   \
     // *-----*-----*
     // v0    m2     v2
-
+    
     uint32 numTris = (uint32)inputCopy.m_indices32.size()/3;
-    for(uint32 i = 0; i < numTris; ++i)
+    char buf[256];
+    itoa(numTris, &buf[0], 10);
+    OutputDebugStringA("\n");
+    OutputDebugStringA(buf);
+
+    for(size_t i = 0; i < numTris; ++i)
     {
         Vertex v0 = inputCopy.m_vertices[ inputCopy.m_indices32[i*3+0] ];
         Vertex v1 = inputCopy.m_vertices[ inputCopy.m_indices32[i*3+1] ];
         Vertex v2 = inputCopy.m_vertices[ inputCopy.m_indices32[i*3+2] ];
-
         //
         // Generate the midpoints.
         //
@@ -179,7 +183,7 @@ MeshData GeometryGenerator::CreateBox(
     meshData.m_indices32.assign(&i[0], &i[36]);
 
     // Put a cap on the number of subdivisions.
-    numSubdivisions = std::min<uint32>(numSubdivisions, 6u);
+    //numSubdivisions = std::min<uint32>(numSubdivisions, 6u);
 
     for(uint32 i = 0; i < numSubdivisions; ++i)
         SubDivide(meshData);

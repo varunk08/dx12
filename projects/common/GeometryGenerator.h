@@ -46,6 +46,17 @@ public:
 class MeshData
 {
 public:
+
+    MeshData() {}
+    MeshData(const MeshData& other)
+    {
+        m_vertices.resize(other.m_vertices.size());
+        m_indices32.resize(other.m_indices32.size());
+
+        m_vertices.assign(other.m_vertices.cbegin(), other.m_vertices.cend());
+        m_indices32.assign(other.m_indices32.cbegin(), other.m_indices32.cend());
+    }
+
     std::vector<uint16>& GetIndices16()
     {
         if (m_indices16.empty())
@@ -60,9 +71,9 @@ public:
 
         return m_indices16;
     }
-
+    
     std::vector<Vertex> m_vertices;
-    std::vector<uint32> m_indices32;
+    std::vector<size_t> m_indices32;
 
 private:
     std::vector<uint16> m_indices16;
