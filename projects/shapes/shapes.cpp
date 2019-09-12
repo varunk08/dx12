@@ -51,6 +51,10 @@ private:
     void Update(const BaseTimer& gt);
     void Draw(const BaseTimer& gt);
 
+    virtual void OnMouseDown(WPARAM btnState, int x, int y) override;
+    virtual void OnMouseUp(WPARAM btnState, int x, int y) override;
+    virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
+
     void OnKeyboardInput(const BaseTimer& gt);
     void UpdateCamera(const BaseTimer& gt);
     void UpdateObjectCBs(const BaseTimer& gt);
@@ -132,6 +136,47 @@ void ShapesDemo::OnResize()
     XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
     XMStoreFloat4x4(&m_proj, P);
 }
+
+// ====================================================================================================================
+void ShapesDemo::OnMouseDown(WPARAM btnState, int x, int y)
+{
+    m_lastMousePos.x = x;
+    m_lastMousePos.y = y;
+    SetCapture(mhMainWnd);
+}
+
+// ====================================================================================================================
+void ShapesDemo::OnMouseUp(WPARAM btnState, int x, int y)
+{
+    ReleaseCapture();
+}
+
+// ====================================================================================================================
+void ShapesDemo::OnMouseMove(WPARAM btnState, int x, int y)
+{
+    if ((btnState & MK_LBUTTON) != 0)
+    {
+        float dx = XMConvertToRadians(0.25f * static_cast<float>(x - m_lastMousePos.x));
+        float dy = XMConvertToRadians(0.25f * static_cast<float>(y - m_lastMousePos.y));
+
+        m_theta += dx;
+        m_phi   += dy;
+
+        m_phi = MathHelper::Clamp(m_phi, 0.1f, MathHelper::Pi - 0.1f);
+    }
+    else if ((btnState & MK_RBUTTON) != 0)
+    {
+        float dx = 0.05f * static_cast<float>(x - m_lastMousePos.x);
+        float dy = 0.05f * static_cast<float>(y - m_lastMousePos.y);
+
+        m_radius += dx - dy;
+        m_radius = MathHelper::Clamp(m_radius, 5.0f, 150.0f);
+    }
+
+    m_lastMousePos.x = x;
+    m_lastMousePos.y = y;
+}
+
 
 // ====================================================================================================================
 void ShapesDemo::Update(const BaseTimer& gt)
