@@ -56,12 +56,7 @@ void GeometryGenerator::SubDivide(
     // v0    m2     v2
     
     uint32 numTris = (uint32)inputCopy.m_indices32.size()/3;
-    char buf[256];
-    itoa(numTris, &buf[0], 10);
-    OutputDebugStringA("\n");
-    OutputDebugStringA(buf);
-
-    for(size_t i = 0; i < numTris; ++i)
+    for(uint32 i = 0; i < numTris; ++i)
     {
         Vertex v0 = inputCopy.m_vertices[ inputCopy.m_indices32[i*3+0] ];
         Vertex v1 = inputCopy.m_vertices[ inputCopy.m_indices32[i*3+1] ];

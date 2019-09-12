@@ -345,7 +345,7 @@ void ShapesDemo::ShapesBuildShadersAndInputLayout()
 void ShapesDemo::ShapesBuildShapeGeometry()
 {
     GeometryGenerator geoGen;
-    MeshData box = geoGen.CreateBox(1.5f, 1.5f, 1.5f, 7);
+    MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 7);
 
     UINT boxVertexOffset = 0;
     UINT boxIndexOffset  = 0;
@@ -367,7 +367,7 @@ void ShapesDemo::ShapesBuildShapeGeometry()
     }
 
     std::vector<std::uint32_t> indices;
-    indices.insert(indices.end(), std::begin(box.m_indices32), std::end(box.m_indices32));
+    indices.insert(indices.end(), std::cbegin(box.m_indices32), std::cend(box.m_indices32));
 
     const UINT vbByteSize = static_cast<UINT>(vertices.size()) * sizeof(FrameResource::Vertex);
     const UINT ibByteSize = static_cast<UINT>(indices.size())  * sizeof(std::uint32_t);

@@ -73,7 +73,7 @@ public:
     }
     
     std::vector<Vertex> m_vertices;
-    std::vector<size_t> m_indices32;
+    std::vector<uint32> m_indices32;
 
 private:
     std::vector<uint16> m_indices16;
