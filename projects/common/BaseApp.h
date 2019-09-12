@@ -82,7 +82,7 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12Resource>            m_depthStencilBuffer;
     
     UINT64 m_currBackBuffer          = 0;
-    UINT64 m_cbvSrvUavDescriptorSize = 0;
+    UINT   m_cbvSrvUavDescriptorSize = 0;
     UINT64 m_dsvDescriptorSize       = 0;
     UINT64 m_rtvDescriptorSize       = 0;
     UINT64 m_currentFence            = 0;

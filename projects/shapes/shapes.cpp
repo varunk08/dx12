@@ -300,7 +300,7 @@ void ShapesDemo::ShapesBuildShadersAndInputLayout()
 void ShapesDemo::ShapesBuildShapeGeometry()
 {
     GeometryGenerator geoGen;
-    MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 3);
+    MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 10);
 
     UINT boxVertexOffset = 0;
     UINT boxIndexOffset  = 0;
@@ -318,7 +318,7 @@ void ShapesDemo::ShapesBuildShapeGeometry()
     for (size_t i = 0; i < box.m_vertices.size(); ++i, ++k)
     {
         vertices[k].pos = box.m_vertices[i].m_position;
-        vertices[k].color = XMFLOAT4(DirectX::Colors::Crimson);
+        vertices[k].color = XMFLOAT4(DirectX::Colors::DarkGreen);
     }
 
     std::vector<std::uint16_t> indices;

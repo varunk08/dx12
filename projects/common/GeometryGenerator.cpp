@@ -6,7 +6,32 @@ using namespace DirectX;
 // ====================================================================================================================
 Vertex GeometryGenerator::MidPoint(const Vertex& v0, const Vertex& v1)
 {
-    return Vertex();
+    XMVECTOR p0 = XMLoadFloat3(&v0.m_position);
+    XMVECTOR p1 = XMLoadFloat3(&v1.m_position);
+
+    XMVECTOR n0 = XMLoadFloat3(&v0.m_normal);
+    XMVECTOR n1 = XMLoadFloat3(&v1.m_normal);
+
+    XMVECTOR tan0 = XMLoadFloat3(&v0.m_tangentU);
+    XMVECTOR tan1 = XMLoadFloat3(&v1.m_tangentU);
+
+    XMVECTOR tex0 = XMLoadFloat2(&v0.m_texC);
+    XMVECTOR tex1 = XMLoadFloat2(&v1.m_texC);
+
+    // Compute the midpoints of all the attributes.  Vectors need to be normalized
+    // since linear interpolating can make them not unit length.  
+    XMVECTOR pos     = 0.5f * (p0 + p1);
+    XMVECTOR normal  = XMVector3Normalize(0.5f * (n0 + n1));
+    XMVECTOR tangent = XMVector3Normalize(0.5f * (tan0 + tan1));
+    XMVECTOR tex     = 0.5f * (tex0 + tex1);
+
+    Vertex v;
+    XMStoreFloat3(&v.m_position, pos);
+    XMStoreFloat3(&v.m_normal, normal);
+    XMStoreFloat3(&v.m_tangentU, tangent);
+    XMStoreFloat2(&v.m_texC, tex);
+
+    return v;
 }
 
 void GeometryGenerator::SubDivide(
