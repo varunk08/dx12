@@ -217,7 +217,7 @@ struct MeshGeometry
 
     UINT vertexByteStride     = 0;
     UINT vertexBufferByteSize = 0;
-    DXGI_FORMAT indexFormat   = DXGI_FORMAT_R16_UINT;
+    DXGI_FORMAT indexFormat   = DXGI_FORMAT_R32_UINT;
     UINT indexBufferByteSize  = 0;
 
     std::unordered_map<std::string, SubmeshGeometry> drawArgs;

@@ -34,6 +34,7 @@ Vertex GeometryGenerator::MidPoint(const Vertex& v0, const Vertex& v1)
     return v;
 }
 
+// ====================================================================================================================
 void GeometryGenerator::SubDivide(
     MeshData& meshData)
 {

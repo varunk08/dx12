@@ -366,11 +366,11 @@ void ShapesDemo::ShapesBuildShapeGeometry()
         vertices[k].color = XMFLOAT4(DirectX::Colors::DarkGreen);
     }
 
-    std::vector<std::uint16_t> indices;
-    indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
+    std::vector<std::uint32_t> indices;
+    indices.insert(indices.end(), std::begin(box.m_indices32), std::end(box.m_indices32));
 
     const UINT vbByteSize = static_cast<UINT>(vertices.size()) * sizeof(FrameResource::Vertex);
-    const UINT ibByteSize = static_cast<UINT>(indices.size())  * sizeof(std::uint16_t);
+    const UINT ibByteSize = static_cast<UINT>(indices.size())  * sizeof(std::uint32_t);
 
     auto geo  = std::make_unique<MeshGeometry>();
     geo->name = "shapeGeo";
@@ -395,7 +395,7 @@ void ShapesDemo::ShapesBuildShapeGeometry()
 
     geo->vertexByteStride     = sizeof(FrameResource::Vertex);
     geo->vertexBufferByteSize = vbByteSize;
-    geo->indexFormat          = DXGI_FORMAT_R16_UINT;
+    geo->indexFormat          = DXGI_FORMAT_R32_UINT;
     geo->indexBufferByteSize  = ibByteSize;
     geo->drawArgs["box"]      = boxSubmesh;
 
