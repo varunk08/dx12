@@ -38,7 +38,7 @@ protected:
     virtual void OnResize();
     virtual void Update(const BaseTimer& gt) = 0;
     virtual void Draw(const BaseTimer& gt) = 0;
-    
+
     // Convenience overrides for handling mouse input.
     virtual void OnMouseDown(WPARAM btnState, int x, int y) { }
     virtual void OnMouseUp(WPARAM btnState, int x, int y) { }
@@ -80,7 +80,7 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>      m_dsvHeap;
     Microsoft::WRL::ComPtr<ID3D12Resource>            m_swapChainBuffer[SwapChainBufferCount];
     Microsoft::WRL::ComPtr<ID3D12Resource>            m_depthStencilBuffer;
-    
+
     UINT64         m_currBackBuffer          = 0;
     UINT           m_cbvSrvUavDescriptorSize = 0;
     UINT64         m_dsvDescriptorSize       = 0;

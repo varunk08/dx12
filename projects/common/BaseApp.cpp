@@ -186,6 +186,7 @@ bool BaseApp::Initialize()
     return result;
 }
 
+// ====================================================================================================================
 LRESULT BaseApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     LRESULT result = 0;
@@ -299,6 +300,10 @@ LRESULT BaseApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         if (wParam == VK_ESCAPE)
         {
             DestroyWindow(hwnd);
+        }
+        else if (wParam == VK_RIGHT)
+        {
+            MessageBoxW(0, L"Cycling through other geometry", 0, 0);
         }
         break;
     case WM_DESTROY:
