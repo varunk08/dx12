@@ -317,6 +317,7 @@ LRESULT BaseApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     return result;
 }
 
+// ====================================================================================================================
 bool BaseApp::InitMainWindow()
 {
     bool result = false;
@@ -476,10 +477,12 @@ void BaseApp::FlushCommandQueue()
     }
 }
 
+// ====================================================================================================================
 void BaseApp::CalculateFrameStats()
 {
 }
 
+// ====================================================================================================================
 void BaseApp::CreateCommandObjects()
 {
     D3D12_COMMAND_QUEUE_DESC queueDesc = {};
@@ -503,6 +506,7 @@ void BaseApp::CreateCommandObjects()
     m_commandList->Close();
 }
 
+// ====================================================================================================================
 void BaseApp::CreateRtvAndDsvDescriptorHeaps()
 {
     D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
