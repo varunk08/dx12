@@ -49,8 +49,9 @@ protected:
     enum Shapes : uint32
     {
         Box,
-        Cylinder,
-        Sphere,
+        Grid,
+        //Cylinder,
+        //Sphere,
         Count
     };
 private:
@@ -197,12 +198,12 @@ void ShapesDemo::OnKeyDown(WPARAM wparam)
         m_currentShape = static_cast<Shapes>(currIdx);
     }
 
-    char buf[256];
-    itoa(static_cast<uint32>(m_currentShape), &buf[0], 10);
-    wchar_t wtext[20];
-    mbstowcs(wtext, buf, strlen(buf) + 1);//Plus null
-    LPWSTR ptr = wtext;
-    MessageBoxW(0, ptr, 0, 0);
+    //char buf[256];
+    //itoa(static_cast<uint32>(m_currentShape), &buf[0], 10);
+    //wchar_t wtext[20];
+    //mbstowcs(wtext, buf, strlen(buf) + 1);//Plus null
+    //LPWSTR ptr = wtext;
+    //MessageBoxW(0, ptr, 0, 0);
 }
 
 
@@ -222,7 +223,9 @@ void ShapesDemo::Update(const BaseTimer& gt)
         WaitForSingleObject(eventHandle, INFINITE);
         CloseHandle(eventHandle);
     }
+    
     UpdateRenderItems();
+    
     UpdateObjectCBs(gt);
     UpdateMainPassCB(gt);
 }
@@ -374,16 +377,26 @@ void ShapesDemo::ShapesBuildShapeGeometry()
 {
     GeometryGenerator geoGen;
     MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 5);
+    MeshData grid = geoGen.CreateGrid(2.0f, 2.0f, 40, 40);
 
     UINT boxVertexOffset = 0;
-    UINT boxIndexOffset  = 0;
+    UINT gridVertexOffset = static_cast<UINT>(box.m_vertices.size());
 
-    SubmeshGeometry boxSubmesh;
+    UINT boxIndexOffset  = 0;
+    UINT gridIndexOffset = static_cast<UINT>(box.m_indices32.size());
+
+    SubmeshGeometry boxSubmesh    = {};
     boxSubmesh.indexCount         = static_cast<UINT>(box.m_indices32.size());
     boxSubmesh.startIndexLocation = boxIndexOffset;
     boxSubmesh.baseVertexLocation = boxVertexOffset;
 
-    auto totalVertexCount = box.m_vertices.size();
+    SubmeshGeometry gridSubMesh    = {};
+    gridSubMesh.indexCount         = static_cast<UINT>(grid.m_indices32.size());
+    gridSubMesh.startIndexLocation = gridIndexOffset;
+    gridSubMesh.baseVertexLocation = gridVertexOffset;
+
+    auto totalVertexCount = box.m_vertices.size()
+                          + grid.m_vertices.size();
 
     std::vector<FrameResource::Vertex> vertices(totalVertexCount);
 
@@ -394,8 +407,15 @@ void ShapesDemo::ShapesBuildShapeGeometry()
         vertices[k].color = XMFLOAT4(DirectX::Colors::DarkGreen);
     }
 
+    for (size_t i = 0; i < grid.m_vertices.size(); ++i, ++k)
+    {
+        vertices[k].pos = grid.m_vertices[i].m_position;
+        vertices[k].color = XMFLOAT4(DirectX::Colors::Chocolate);
+    }
+
     std::vector<std::uint32_t> indices;
     indices.insert(indices.end(), std::cbegin(box.m_indices32), std::cend(box.m_indices32));
+    indices.insert(indices.end(), std::cbegin(grid.m_indices32), std::cend(grid.m_indices32));
 
     const UINT vbByteSize = static_cast<UINT>(vertices.size()) * sizeof(FrameResource::Vertex);
     const UINT ibByteSize = static_cast<UINT>(indices.size())  * sizeof(std::uint32_t);
@@ -425,7 +445,9 @@ void ShapesDemo::ShapesBuildShapeGeometry()
     geo->vertexBufferByteSize = vbByteSize;
     geo->indexFormat          = DXGI_FORMAT_R32_UINT;
     geo->indexBufferByteSize  = ibByteSize;
+    
     geo->drawArgs["box"]      = boxSubmesh;
+    geo->drawArgs["grid"]     = gridSubMesh;
 
     m_geometries[geo->name] = std::move(geo);
 }
@@ -433,15 +455,27 @@ void ShapesDemo::ShapesBuildShapeGeometry()
 // ====================================================================================================================
 void ShapesDemo::ShapesBuildRenderItems()
 {
+    uint32 objectCbIndex = 0;
+
     auto boxItem = std::make_unique<RenderItem>();
     XMStoreFloat4x4(&boxItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
-    boxItem->m_objCbIndex         = 0;
+    boxItem->m_objCbIndex         = objectCbIndex++;
     boxItem->m_pGeo               = m_geometries["shapeGeo"].get();
     boxItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     boxItem->m_indexCount         = boxItem->m_pGeo->drawArgs["box"].indexCount;
     boxItem->m_startIndexLocation = boxItem->m_pGeo->drawArgs["box"].startIndexLocation;
     boxItem->m_baseVertexLocation = boxItem->m_pGeo->drawArgs["box"].baseVertexLocation;
     m_allRenderItems.push_back(std::move(boxItem));
+
+    auto gridItem = std::make_unique<RenderItem>();
+    XMStoreFloat4x4(&gridItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
+    gridItem->m_objCbIndex         = objectCbIndex++;
+    gridItem->m_pGeo               = m_geometries["shapeGeo"].get();
+    gridItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    gridItem->m_indexCount         = gridItem->m_pGeo->drawArgs["grid"].indexCount;
+    gridItem->m_startIndexLocation = gridItem->m_pGeo->drawArgs["grid"].startIndexLocation;
+    gridItem->m_baseVertexLocation = gridItem->m_pGeo->drawArgs["grid"].baseVertexLocation;
+    m_allRenderItems.push_back(std::move(gridItem));
 
     //for(auto& e : m_allRenderItems)
     //    m_opaqueItems.push_back(e.get());
