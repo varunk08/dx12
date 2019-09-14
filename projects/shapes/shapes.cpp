@@ -475,7 +475,7 @@ void ShapesDemo::ShapesBuildRenderItems()
     uint32 objectCbIndex = 0;
 
     auto boxItem = std::make_unique<RenderItem>();
-    XMStoreFloat4x4(&boxItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
+    XMStoreFloat4x4(&boxItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, -0.5f, 0.0f));
     boxItem->m_objCbIndex         = objectCbIndex++;
     boxItem->m_pGeo               = m_geometries["shapeGeo"].get();
     boxItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -495,7 +495,7 @@ void ShapesDemo::ShapesBuildRenderItems()
     m_allRenderItems.push_back(std::move(gridItem));
 
     auto sphereItem = std::make_unique<RenderItem>();
-    XMStoreFloat4x4(&sphereItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
+    XMStoreFloat4x4(&sphereItem->m_world, XMMatrixScaling(3.0f, 3.0f, 3.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f));
     sphereItem->m_objCbIndex         = objectCbIndex++;
     sphereItem->m_pGeo               = m_geometries["shapeGeo"].get();
     sphereItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
