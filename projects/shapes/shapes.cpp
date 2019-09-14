@@ -22,7 +22,7 @@ using namespace std;
 using namespace DirectX;
 
 // ====================================================================================================================
-constexpr unsigned int NumFrameResources = 3;
+constexpr unsigned int NumFrameResources = 1;
 
 // ====================================================================================================================
 struct RenderItem
@@ -519,7 +519,7 @@ void ShapesDemo::ShapesBuildFrameResources()
         m_frameResources.push_back(
             std::make_unique<FrameResource::FrameResource>(m_d3dDevice.Get(),
                                                            1,
-                                                           static_cast<UINT>(m_allRenderItems.size())));
+                                                           1));
     }
 }
 
@@ -629,7 +629,7 @@ void ShapesDemo::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::
         cmdList->IASetIndexBuffer(&ri->m_pGeo->IndexBufferView());
         cmdList->IASetPrimitiveTopology(ri->m_primitiveType);
 
-        UINT cbvIndex = m_currFrameResourceIndex * (UINT) m_opaqueItems.size() + ri->m_objCbIndex;
+        UINT cbvIndex = 0;//ri->m_objCbIndex; //m_currFrameResourceIndex * (UINT) m_opaqueItems.size() + ri->m_objCbIndex;
         auto cbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvHeap->GetGPUDescriptorHandleForHeapStart());
         cbvHandle.Offset(cbvIndex, m_cbvSrvUavDescriptorSize);
         cmdList->SetGraphicsRootDescriptorTable(0, cbvHandle);
@@ -649,17 +649,23 @@ void ShapesDemo::UpdateRenderItems()
 void ShapesDemo::UpdateObjectCBs(const BaseTimer& timer)
 {
     auto currObjectCB = m_currFrameResource->m_objCb.get();
-    for (auto& e : m_allRenderItems)
-    {
-        if (e->m_numFramesDirty > 0)
-        {
-            XMMATRIX world = XMLoadFloat4x4(&e->m_world);
-            FrameResource::ObjectConstants objConstants;
-            XMStoreFloat4x4(&objConstants.m_world, XMMatrixTranspose(world));
-            currObjectCB->CopyData(e->m_objCbIndex, objConstants);
-            e->m_numFramesDirty--;
-        }
-    }
+    
+    XMMATRIX world = XMLoadFloat4x4(&m_opaqueItems[0]->m_world);
+    FrameResource::ObjectConstants objConstants;
+    XMStoreFloat4x4(&objConstants.m_world, XMMatrixTranspose(world));
+    currObjectCB->CopyData(m_opaqueItems[0]->m_objCbIndex, objConstants);
+
+    //for (auto& e : m_allRenderItems)
+    //{
+    //    if (e->m_numFramesDirty > 0)
+    //    {
+    //        XMMATRIX world = XMLoadFloat4x4(&e->m_world);
+    //        FrameResource::ObjectConstants objConstants;
+    //        XMStoreFloat4x4(&objConstants.m_world, XMMatrixTranspose(world));
+    //        currObjectCB->CopyData(e->m_objCbIndex, objConstants);
+    //        e->m_numFramesDirty--;
+    //    }
+    //}
 }
 
 // ====================================================================================================================
