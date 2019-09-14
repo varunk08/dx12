@@ -46,6 +46,13 @@ public:
     ShapesDemo(HINSTANCE hInstance);
     bool Initialize();
 protected:
+    enum Shapes : uint32
+    {
+        Box,
+        Cylinder,
+        Sphere,
+        Count
+    };
 private:
     void OnResize() override;
     void Update(const BaseTimer& gt);
@@ -54,6 +61,7 @@ private:
     virtual void OnMouseDown(WPARAM btnState, int x, int y) override;
     virtual void OnMouseUp(WPARAM btnState, int x, int y) override;
     virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
+    virtual void OnKeyDown(WPARAM wparam) override;
 
     void OnKeyboardInput(const BaseTimer& gt);
     void UpdateCamera(const BaseTimer& gt);
@@ -69,6 +77,7 @@ private:
     void ShapesBuildConstBufferViews();
     void ShapesBuildPsos();
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& rItems);
+    void UpdateRenderItems();
 
     FrameResource::PassConstants                                   m_mainPassCB;
     bool                                                           m_isWireFrame = false;
@@ -91,6 +100,7 @@ private:
     POINT                                                          m_lastMousePos;
     int                                                            m_currFrameResourceIndex = 0;
     FrameResource::FrameResource*                                  m_currFrameResource = nullptr;
+    Shapes                                                         m_currentShape = Shapes::Box;
 };
 
 // ====================================================================================================================
@@ -177,6 +187,24 @@ void ShapesDemo::OnMouseMove(WPARAM btnState, int x, int y)
     m_lastMousePos.y = y;
 }
 
+// ====================================================================================================================
+void ShapesDemo::OnKeyDown(WPARAM wparam)
+{
+    if (wparam == VK_RIGHT)
+    {
+        uint32 currIdx = static_cast<uint32>(m_currentShape);
+        currIdx  = (currIdx + 1) % Shapes::Count;
+        m_currentShape = static_cast<Shapes>(currIdx);
+    }
+
+    char buf[256];
+    itoa(static_cast<uint32>(m_currentShape), &buf[0], 10);
+    wchar_t wtext[20];
+    mbstowcs(wtext, buf, strlen(buf) + 1);//Plus null
+    LPWSTR ptr = wtext;
+    MessageBoxW(0, ptr, 0, 0);
+}
+
 
 // ====================================================================================================================
 void ShapesDemo::Update(const BaseTimer& gt)
@@ -194,7 +222,7 @@ void ShapesDemo::Update(const BaseTimer& gt)
         WaitForSingleObject(eventHandle, INFINITE);
         CloseHandle(eventHandle);
     }
-
+    UpdateRenderItems();
     UpdateObjectCBs(gt);
     UpdateMainPassCB(gt);
 }
@@ -415,8 +443,11 @@ void ShapesDemo::ShapesBuildRenderItems()
     boxItem->m_baseVertexLocation = boxItem->m_pGeo->drawArgs["box"].baseVertexLocation;
     m_allRenderItems.push_back(std::move(boxItem));
 
-    for(auto& e : m_allRenderItems)
-        m_opaqueItems.push_back(e.get());
+    //for(auto& e : m_allRenderItems)
+    //    m_opaqueItems.push_back(e.get());
+
+    // Start with a box
+    m_opaqueItems.push_back(m_allRenderItems[static_cast<uint32>(m_currentShape)].get());
 }
 
 // ====================================================================================================================
@@ -537,12 +568,19 @@ void ShapesDemo::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::
         cmdList->IASetIndexBuffer(&ri->m_pGeo->IndexBufferView());
         cmdList->IASetPrimitiveTopology(ri->m_primitiveType);
 
-        UINT cbvIndex = m_currFrameResourceIndex* (UINT) m_opaqueItems.size() + ri->m_objCbIndex;
+        UINT cbvIndex = m_currFrameResourceIndex * (UINT) m_opaqueItems.size() + ri->m_objCbIndex;
         auto cbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvHeap->GetGPUDescriptorHandleForHeapStart());
         cbvHandle.Offset(cbvIndex, m_cbvSrvUavDescriptorSize);
         cmdList->SetGraphicsRootDescriptorTable(0, cbvHandle);
         cmdList->DrawIndexedInstanced(ri->m_indexCount, 1, ri->m_startIndexLocation, ri->m_baseVertexLocation, 0);
     }
+}
+
+// ====================================================================================================================
+void ShapesDemo::UpdateRenderItems()
+{
+    m_opaqueItems.clear();
+    m_opaqueItems.push_back(m_allRenderItems[static_cast<uint32>(m_currentShape)].get());
 }
 
 // ====================================================================================================================

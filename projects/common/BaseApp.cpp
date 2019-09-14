@@ -7,6 +7,7 @@ using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
 
+// ====================================================================================================================
 LRESULT CALLBACK
 MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -21,6 +22,7 @@ BaseApp * BaseApp::GetApp()
     return mApp;
 }
 
+// ====================================================================================================================
 BaseApp::BaseApp(
     HINSTANCE hInstance)
     :
@@ -30,6 +32,7 @@ BaseApp::BaseApp(
     mApp = this;
 }
 
+// ====================================================================================================================
 void BaseApp::OnResize()
 {
     assert(m_d3dDevice);
@@ -301,9 +304,9 @@ LRESULT BaseApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             DestroyWindow(hwnd);
         }
-        else if (wParam == VK_RIGHT)
+        else 
         {
-            MessageBoxW(0, L"Cycling through other geometry", 0, 0);
+            OnKeyDown(wParam);
         }
         break;
     case WM_DESTROY:
