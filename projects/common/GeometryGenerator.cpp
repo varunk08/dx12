@@ -251,3 +251,118 @@ MeshData GeometryGenerator::CreateGrid(
 
     return meshData;
 }
+
+// ====================================================================================================================
+MeshData GeometryGenerator::CreateSphere(
+    float radius,
+    uint32 sliceCount,
+    uint32 stackCount)
+{
+    MeshData meshData;
+
+    //
+    // Compute the vertices stating at the top pole and moving down the stacks.
+    //
+
+    // Poles: note that there will be texture coordinate distortion as there is
+    // not a unique point on the texture map to assign to the pole when mapping
+    // a rectangular texture onto a sphere.
+    Vertex topVertex(0.0f, +radius, 0.0f, 0.0f, +1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    Vertex bottomVertex(0.0f, -radius, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+
+    meshData.m_vertices.push_back(topVertex);
+
+    float phiStep = XM_PI / stackCount;
+    float thetaStep = 2.0f * XM_PI / sliceCount;
+
+    // Compute vertices for each stack ring (do not count the poles as rings).
+    for (uint32 i = 1; i <= stackCount - 1; ++i)
+    {
+        float phi = i * phiStep;
+
+        // Vertices of ring.
+        for (uint32 j = 0; j <= sliceCount; ++j)
+        {
+            float theta = j * thetaStep;
+
+            Vertex v;
+
+            // spherical to cartesian
+            v.m_position.x = radius * sinf(phi) * cosf(theta);
+            v.m_position.y = radius * cosf(phi);
+            v.m_position.z = radius * sinf(phi) * sinf(theta);
+
+            // Partial derivative of P with respect to theta
+            v.m_tangentU.x = -radius * sinf(phi) * sinf(theta);
+            v.m_tangentU.y = 0.0f;
+            v.m_tangentU.z = +radius * sinf(phi) * cosf(theta);
+
+            XMVECTOR T = XMLoadFloat3(&v.m_tangentU);
+            XMStoreFloat3(&v.m_tangentU, XMVector3Normalize(T));
+
+            XMVECTOR p = XMLoadFloat3(&v.m_position);
+            XMStoreFloat3(&v.m_normal, XMVector3Normalize(p));
+
+            v.m_texC.x = theta / XM_2PI;
+            v.m_texC.y = phi / XM_PI;
+
+            meshData.m_vertices.push_back(v);
+        }
+    }
+
+    meshData.m_vertices.push_back(bottomVertex);
+
+    //
+    // Compute indices for top stack.  The top stack was written first to the vertex buffer
+    // and connects the top pole to the first ring.
+    //
+
+    for (uint32 i = 1; i <= sliceCount; ++i)
+    {
+        meshData.m_indices32.push_back(0);
+        meshData.m_indices32.push_back(i + 1);
+        meshData.m_indices32.push_back(i);
+    }
+
+    //
+    // Compute indices for inner stacks (not connected to poles).
+    //
+
+    // Offset the indices to the index of the first vertex in the first ring.
+    // This is just skipping the top pole vertex.
+    uint32 baseIndex = 1;
+    uint32 ringVertexCount = sliceCount + 1;
+    for (uint32 i = 0; i < stackCount - 2; ++i)
+    {
+        for (uint32 j = 0; j < sliceCount; ++j)
+        {
+            meshData.m_indices32.push_back(baseIndex + i * ringVertexCount + j);
+            meshData.m_indices32.push_back(baseIndex + i * ringVertexCount + j + 1);
+            meshData.m_indices32.push_back(baseIndex + (i + 1) * ringVertexCount + j);
+
+            meshData.m_indices32.push_back(baseIndex + (i + 1) * ringVertexCount + j);
+            meshData.m_indices32.push_back(baseIndex + i * ringVertexCount + j + 1);
+            meshData.m_indices32.push_back(baseIndex + (i + 1) * ringVertexCount + j + 1);
+        }
+    }
+
+    //
+    // Compute indices for bottom stack.  The bottom stack was written last to the vertex buffer
+    // and connects the bottom pole to the bottom ring.
+    //
+
+    // South pole vertex was added last.
+    uint32 southPoleIndex = (uint32)meshData.m_vertices.size() - 1;
+
+    // Offset the indices to the index of the first vertex in the last ring.
+    baseIndex = southPoleIndex - ringVertexCount;
+
+    for (uint32 i = 0; i < sliceCount; ++i)
+    {
+        meshData.m_indices32.push_back(southPoleIndex);
+        meshData.m_indices32.push_back(baseIndex + i);
+        meshData.m_indices32.push_back(baseIndex + i + 1);
+    }
+
+    return meshData;
+}

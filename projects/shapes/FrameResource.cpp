@@ -12,7 +12,7 @@ FrameResource::FrameResource(
                                                  IID_PPV_ARGS(m_cmdListAlloc.GetAddressOf())));
 
     m_passCb = std::make_unique<UploadBuffer<PassConstants>>(device, passCount, true);
-    m_objCb = std::make_unique<UploadBuffer<ObjectConstants>>(device, objectCount, true);
+    m_objCb  = std::make_unique<UploadBuffer<ObjectConstants>>(device, objectCount, true);
 }
 
 FrameResource::~FrameResource()

@@ -30,7 +30,7 @@ struct RenderItem
         RenderItem() = default;
 
         XMFLOAT4X4               m_world = MathHelper::Identity4x4();
-        int                      m_numFramesDirty = NumFrameResources;
+        UINT                     m_numFramesDirty = NumFrameResources;
         UINT                     m_objCbIndex = -1;
         MeshGeometry*            m_pGeo = nullptr;
         D3D12_PRIMITIVE_TOPOLOGY m_primitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -51,7 +51,7 @@ protected:
         Box,
         Grid,
         //Cylinder,
-        //Sphere,
+        Sphere,
         Count
     };
 private:
@@ -376,14 +376,17 @@ void ShapesDemo::ShapesBuildShadersAndInputLayout()
 void ShapesDemo::ShapesBuildShapeGeometry()
 {
     GeometryGenerator geoGen;
-    MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 5);
-    MeshData grid = geoGen.CreateGrid(2.0f, 2.0f, 40, 40);
+    MeshData box    = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 5);
+    MeshData grid   = geoGen.CreateGrid(2.0f, 2.0f, 40, 40);
+    MeshData sphere = geoGen.CreateSphere(0.5f, 20, 20);
 
-    UINT boxVertexOffset = 0;
-    UINT gridVertexOffset = static_cast<UINT>(box.m_vertices.size());
+    UINT boxVertexOffset    = 0;
+    UINT gridVertexOffset   = static_cast<UINT>(box.m_vertices.size());
+    UINT sphereVertexOffset = gridVertexOffset + static_cast<UINT>(grid.m_vertices.size());
 
-    UINT boxIndexOffset  = 0;
-    UINT gridIndexOffset = static_cast<UINT>(box.m_indices32.size());
+    UINT boxIndexOffset    = 0;
+    UINT gridIndexOffset   = static_cast<UINT>(box.m_indices32.size());
+    UINT sphereIndexOffset = gridIndexOffset + static_cast<UINT>(grid.m_indices32.size());
 
     SubmeshGeometry boxSubmesh    = {};
     boxSubmesh.indexCount         = static_cast<UINT>(box.m_indices32.size());
@@ -395,27 +398,40 @@ void ShapesDemo::ShapesBuildShapeGeometry()
     gridSubMesh.startIndexLocation = gridIndexOffset;
     gridSubMesh.baseVertexLocation = gridVertexOffset;
 
+    SubmeshGeometry sphereSubMesh = {};
+    sphereSubMesh.indexCount      = static_cast<UINT>(sphere.m_indices32.size());
+    sphereSubMesh.startIndexLocation = sphereIndexOffset;
+    sphereSubMesh.baseVertexLocation = sphereVertexOffset;
+
     auto totalVertexCount = box.m_vertices.size()
-                          + grid.m_vertices.size();
+                          + grid.m_vertices.size()
+                          + sphere.m_vertices.size();
 
     std::vector<FrameResource::Vertex> vertices(totalVertexCount);
 
     UINT k = 0;
     for (size_t i = 0; i < box.m_vertices.size(); ++i, ++k)
     {
-        vertices[k].pos = box.m_vertices[i].m_position;
+        vertices[k].pos   = box.m_vertices[i].m_position;
         vertices[k].color = XMFLOAT4(DirectX::Colors::DarkGreen);
     }
 
     for (size_t i = 0; i < grid.m_vertices.size(); ++i, ++k)
     {
-        vertices[k].pos = grid.m_vertices[i].m_position;
+        vertices[k].pos   = grid.m_vertices[i].m_position;
         vertices[k].color = XMFLOAT4(DirectX::Colors::Chocolate);
+    }
+
+    for (size_t i = 0; i < sphere.m_vertices.size(); ++i, ++k)
+    {
+        vertices[k].pos   = sphere.m_vertices[i].m_position;
+        vertices[k].color = XMFLOAT4(DirectX::Colors::IndianRed);
     }
 
     std::vector<std::uint32_t> indices;
     indices.insert(indices.end(), std::cbegin(box.m_indices32), std::cend(box.m_indices32));
     indices.insert(indices.end(), std::cbegin(grid.m_indices32), std::cend(grid.m_indices32));
+    indices.insert(indices.end(), std::cbegin(sphere.m_indices32), std::cend(sphere.m_indices32));
 
     const UINT vbByteSize = static_cast<UINT>(vertices.size()) * sizeof(FrameResource::Vertex);
     const UINT ibByteSize = static_cast<UINT>(indices.size())  * sizeof(std::uint32_t);
@@ -446,8 +462,9 @@ void ShapesDemo::ShapesBuildShapeGeometry()
     geo->indexFormat          = DXGI_FORMAT_R32_UINT;
     geo->indexBufferByteSize  = ibByteSize;
     
-    geo->drawArgs["box"]      = boxSubmesh;
-    geo->drawArgs["grid"]     = gridSubMesh;
+    geo->drawArgs["box"]    = boxSubmesh;
+    geo->drawArgs["grid"]   = gridSubMesh;
+    geo->drawArgs["sphere"] = sphereSubMesh;
 
     m_geometries[geo->name] = std::move(geo);
 }
@@ -477,11 +494,21 @@ void ShapesDemo::ShapesBuildRenderItems()
     gridItem->m_baseVertexLocation = gridItem->m_pGeo->drawArgs["grid"].baseVertexLocation;
     m_allRenderItems.push_back(std::move(gridItem));
 
+    auto sphereItem = std::make_unique<RenderItem>();
+    XMStoreFloat4x4(&sphereItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
+    sphereItem->m_objCbIndex         = objectCbIndex++;
+    sphereItem->m_pGeo               = m_geometries["shapeGeo"].get();
+    sphereItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    sphereItem->m_indexCount         = sphereItem->m_pGeo->drawArgs["sphere"].indexCount;
+    sphereItem->m_startIndexLocation = sphereItem->m_pGeo->drawArgs["sphere"].startIndexLocation;
+    sphereItem->m_baseVertexLocation = sphereItem->m_pGeo->drawArgs["sphere"].baseVertexLocation;
+    m_allRenderItems.push_back(std::move(sphereItem));
+
     //for(auto& e : m_allRenderItems)
     //    m_opaqueItems.push_back(e.get());
 
     // Start with a box
-    m_opaqueItems.push_back(m_allRenderItems[static_cast<uint32>(m_currentShape)].get());
+    m_opaqueItems.push_back(m_allRenderItems[static_cast<uint32>(Shapes::Box)].get());
 }
 
 // ====================================================================================================================
@@ -499,9 +526,9 @@ void ShapesDemo::ShapesBuildFrameResources()
 // ====================================================================================================================
 void ShapesDemo::ShapesBuildDescriptorHeaps()
 {
-    UINT objCount = (UINT)m_opaqueItems.size();
+    UINT objCount       = (UINT)m_opaqueItems.size();
     UINT numDescriptors = (objCount + 1) * NumFrameResources;
-    m_passCbvOffset = objCount * NumFrameResources;
+    m_passCbvOffset     = objCount * NumFrameResources;
 
     D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = { };
     cbvHeapDesc.NumDescriptors             = numDescriptors;
@@ -615,6 +642,7 @@ void ShapesDemo::UpdateRenderItems()
 {
     m_opaqueItems.clear();
     m_opaqueItems.push_back(m_allRenderItems[static_cast<uint32>(m_currentShape)].get());
+    //m_opaqueItems.at(0)->m_numFramesDirty = NumFrameResources;
 }
 
 // ====================================================================================================================
