@@ -475,7 +475,7 @@ void ShapesDemo::ShapesBuildRenderItems()
     uint32 objectCbIndex = 0;
 
     auto boxItem = std::make_unique<RenderItem>();
-    XMStoreFloat4x4(&boxItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, -0.5f, 0.0f));
+    XMStoreFloat4x4(&boxItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f));
     boxItem->m_objCbIndex         = objectCbIndex++;
     boxItem->m_pGeo               = m_geometries["shapeGeo"].get();
     boxItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -519,14 +519,14 @@ void ShapesDemo::ShapesBuildFrameResources()
         m_frameResources.push_back(
             std::make_unique<FrameResource::FrameResource>(m_d3dDevice.Get(),
                                                            1,
-                                                           1));
+                                                           static_cast<UINT>(m_allRenderItems.size())));
     }
 }
 
 // ====================================================================================================================
 void ShapesDemo::ShapesBuildDescriptorHeaps()
 {
-    UINT objCount       = (UINT)m_opaqueItems.size();
+    UINT objCount       = (UINT)m_allRenderItems.size();
     UINT numDescriptors = (objCount + 1) * NumFrameResources;
     m_passCbvOffset     = objCount * NumFrameResources;
 
@@ -543,7 +543,7 @@ void ShapesDemo::ShapesBuildDescriptorHeaps()
 void ShapesDemo::ShapesBuildConstBufferViews()
 {
     UINT objCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::ObjectConstants));
-    UINT objCount      = (UINT) m_opaqueItems.size();
+    UINT objCount      = (UINT) m_allRenderItems.size();
 
     for (int frameIndex = 0; frameIndex < NumFrameResources; ++frameIndex)
     {
@@ -629,7 +629,7 @@ void ShapesDemo::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::
         cmdList->IASetIndexBuffer(&ri->m_pGeo->IndexBufferView());
         cmdList->IASetPrimitiveTopology(ri->m_primitiveType);
 
-        UINT cbvIndex = 0;//ri->m_objCbIndex; //m_currFrameResourceIndex * (UINT) m_opaqueItems.size() + ri->m_objCbIndex;
+        UINT cbvIndex = m_currFrameResourceIndex * (UINT) m_allRenderItems.size() + ri->m_objCbIndex;
         auto cbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvHeap->GetGPUDescriptorHandleForHeapStart());
         cbvHandle.Offset(cbvIndex, m_cbvSrvUavDescriptorSize);
         cmdList->SetGraphicsRootDescriptorTable(0, cbvHandle);
