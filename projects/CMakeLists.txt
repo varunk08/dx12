@@ -22,6 +22,7 @@ set (PROJECTS
      hello_world
      d3d_initialization
      draw_box
-     shapes)
+     shapes
+     shapes_shaded)
 
 buildAllProjects()
