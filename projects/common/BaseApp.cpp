@@ -304,7 +304,7 @@ LRESULT BaseApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             DestroyWindow(hwnd);
         }
-        else 
+        else
         {
             OnKeyDown(wParam);
         }
@@ -398,7 +398,8 @@ bool BaseApp::InitDirect3D()
 
             m_rtvDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
             m_dsvDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
-            m_cbvSrvUavDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            m_cbvSrvUavDescriptorSize =
+                m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
             D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS msQualityLevels;
             msQualityLevels.Format           = m_backBufferFormat;
@@ -432,6 +433,7 @@ bool BaseApp::InitDirect3D()
     return ret;
 }
 
+// ====================================================================================================================
 void BaseApp::CreateSwapChain()
 {
     // Release the previous swapchain we will be recreating.
@@ -460,6 +462,7 @@ void BaseApp::CreateSwapChain()
                                                  m_swapChain.GetAddressOf()));
 }
 
+// ====================================================================================================================
 void BaseApp::FlushCommandQueue()
 {
     m_currentFence++;
@@ -527,11 +530,13 @@ void BaseApp::CreateRtvAndDsvDescriptorHeaps()
     ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(m_dsvHeap.GetAddressOf())));
 }
 
+// ====================================================================================================================
 ID3D12Resource * BaseApp::CurrentBackBuffer() const
 {
     return m_swapChainBuffer[m_currBackBuffer].Get();
 }
 
+// ====================================================================================================================
 D3D12_CPU_DESCRIPTOR_HANDLE BaseApp::CurrentBackBufferView() const
 {
     return CD3DX12_CPU_DESCRIPTOR_HANDLE(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(),
@@ -539,11 +544,13 @@ D3D12_CPU_DESCRIPTOR_HANDLE BaseApp::CurrentBackBufferView() const
                                          static_cast<UINT>(m_rtvDescriptorSize));
 }
 
+// ====================================================================================================================
 D3D12_CPU_DESCRIPTOR_HANDLE BaseApp::DepthStencilView() const
 {
     return m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
 }
 
+// ====================================================================================================================
 void BaseApp::LogAdapters()
 {
     UINT i = 0;
@@ -575,6 +582,7 @@ void BaseApp::LogAdapters()
     }
 }
 
+// ====================================================================================================================
 void BaseApp::LogDisplays(IDXGIAdapter* pAdapter)
 {
     UINT i = 0;
@@ -593,6 +601,7 @@ void BaseApp::LogDisplays(IDXGIAdapter* pAdapter)
     }
 }
 
+// ====================================================================================================================
 void BaseApp::LogDisplayModes(IDXGIOutput* pOutput, DXGI_FORMAT format)
 {
     UINT count = 0;
@@ -614,6 +623,7 @@ void BaseApp::LogDisplayModes(IDXGIOutput* pOutput, DXGI_FORMAT format)
     }
 }
 
+// ====================================================================================================================
 void BaseApp::CheckFeatureLevels()
 {
     D3D_FEATURE_LEVEL featureLevels[3] =

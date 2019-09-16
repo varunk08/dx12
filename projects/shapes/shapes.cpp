@@ -22,7 +22,7 @@ using namespace std;
 using namespace DirectX;
 
 // ====================================================================================================================
-constexpr unsigned int NumFrameResources = 1;
+constexpr unsigned int NumFrameResources = 3;
 
 // ====================================================================================================================
 struct RenderItem
@@ -223,9 +223,9 @@ void ShapesDemo::Update(const BaseTimer& gt)
         WaitForSingleObject(eventHandle, INFINITE);
         CloseHandle(eventHandle);
     }
-    
+
     UpdateRenderItems();
-    
+
     UpdateObjectCBs(gt);
     UpdateMainPassCB(gt);
 }
@@ -477,7 +477,7 @@ void ShapesDemo::ShapesBuildShapeGeometry()
     geo->vertexBufferByteSize = vbByteSize;
     geo->indexFormat          = DXGI_FORMAT_R32_UINT;
     geo->indexBufferByteSize  = ibByteSize;
-    
+
     geo->drawArgs["box"]    = boxSubmesh;
     geo->drawArgs["grid"]   = gridSubMesh;
     geo->drawArgs["sphere"] = sphereSubMesh;
@@ -522,7 +522,7 @@ void ShapesDemo::ShapesBuildRenderItems()
     m_allRenderItems.push_back(std::move(sphereItem));
 
     auto cylItem = std::make_unique<RenderItem>();
-    XMStoreFloat4x4(&cylItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f));
+    XMStoreFloat4x4(&cylItem->m_world, XMMatrixScaling(2.0f, 1.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f));
     cylItem->m_objCbIndex         = objectCbIndex++;
     cylItem->m_pGeo               = m_geometries["shapeGeo"].get();
     cylItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -530,9 +530,6 @@ void ShapesDemo::ShapesBuildRenderItems()
     cylItem->m_startIndexLocation = cylItem->m_pGeo->drawArgs["cyl"].startIndexLocation;
     cylItem->m_baseVertexLocation = cylItem->m_pGeo->drawArgs["cyl"].baseVertexLocation;
     m_allRenderItems.push_back(std::move(cylItem));
-
-    //for(auto& e : m_allRenderItems)
-    //    m_opaqueItems.push_back(e.get());
 
     // Start with a box
     m_opaqueItems.push_back(m_allRenderItems[static_cast<uint32>(Shapes::Box)].get());
@@ -669,30 +666,29 @@ void ShapesDemo::UpdateRenderItems()
 {
     m_opaqueItems.clear();
     m_opaqueItems.push_back(m_allRenderItems[static_cast<uint32>(m_currentShape)].get());
-    //m_opaqueItems.at(0)->m_numFramesDirty = NumFrameResources;
 }
 
 // ====================================================================================================================
 void ShapesDemo::UpdateObjectCBs(const BaseTimer& timer)
 {
     auto currObjectCB = m_currFrameResource->m_objCb.get();
-    
-    XMMATRIX world = XMLoadFloat4x4(&m_opaqueItems[0]->m_world);
-    FrameResource::ObjectConstants objConstants;
-    XMStoreFloat4x4(&objConstants.m_world, XMMatrixTranspose(world));
-    currObjectCB->CopyData(m_opaqueItems[0]->m_objCbIndex, objConstants);
 
-    //for (auto& e : m_allRenderItems)
-    //{
-    //    if (e->m_numFramesDirty > 0)
-    //    {
-    //        XMMATRIX world = XMLoadFloat4x4(&e->m_world);
-    //        FrameResource::ObjectConstants objConstants;
-    //        XMStoreFloat4x4(&objConstants.m_world, XMMatrixTranspose(world));
-    //        currObjectCB->CopyData(e->m_objCbIndex, objConstants);
-    //        e->m_numFramesDirty--;
-    //    }
-    //}
+    //XMMATRIX world = XMLoadFloat4x4(&m_opaqueItems[0]->m_world);
+    //FrameResource::ObjectConstants objConstants;
+    //XMStoreFloat4x4(&objConstants.m_world, XMMatrixTranspose(world));
+    //currObjectCB->CopyData(m_opaqueItems[0]->m_objCbIndex, objConstants);
+
+    for (auto& e : m_allRenderItems)
+    {
+        if (e->m_numFramesDirty > 0)
+        {
+            XMMATRIX world = XMLoadFloat4x4(&e->m_world);
+            FrameResource::ObjectConstants objConstants;
+            XMStoreFloat4x4(&objConstants.m_world, XMMatrixTranspose(world));
+            currObjectCB->CopyData(e->m_objCbIndex, objConstants);
+            e->m_numFramesDirty--;
+        }
+    }
 }
 
 // ====================================================================================================================
