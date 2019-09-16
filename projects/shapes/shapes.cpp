@@ -50,7 +50,7 @@ protected:
     {
         Box,
         Grid,
-        //Cylinder,
+        Cylinder,
         Sphere,
         Count
     };
@@ -379,14 +379,17 @@ void ShapesDemo::ShapesBuildShapeGeometry()
     MeshData box    = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 5);
     MeshData grid   = geoGen.CreateGrid(2.0f, 2.0f, 40, 40);
     MeshData sphere = geoGen.CreateSphere(0.5f, 20, 20);
+    MeshData cyl    = geoGen.CreateCylinder(0.5f, 0.5f, 3.0f, 20, 20);
 
     UINT boxVertexOffset    = 0;
     UINT gridVertexOffset   = static_cast<UINT>(box.m_vertices.size());
     UINT sphereVertexOffset = gridVertexOffset + static_cast<UINT>(grid.m_vertices.size());
+    UINT cylVertexOffset    = sphereVertexOffset + static_cast<UINT>(sphere.m_vertices.size());
 
     UINT boxIndexOffset    = 0;
     UINT gridIndexOffset   = static_cast<UINT>(box.m_indices32.size());
     UINT sphereIndexOffset = gridIndexOffset + static_cast<UINT>(grid.m_indices32.size());
+    UINT cylIndexOffset    = sphereIndexOffset + static_cast<UINT>(sphere.m_indices32.size());
 
     SubmeshGeometry boxSubmesh    = {};
     boxSubmesh.indexCount         = static_cast<UINT>(box.m_indices32.size());
@@ -398,14 +401,20 @@ void ShapesDemo::ShapesBuildShapeGeometry()
     gridSubMesh.startIndexLocation = gridIndexOffset;
     gridSubMesh.baseVertexLocation = gridVertexOffset;
 
-    SubmeshGeometry sphereSubMesh = {};
-    sphereSubMesh.indexCount      = static_cast<UINT>(sphere.m_indices32.size());
+    SubmeshGeometry sphereSubMesh    = {};
+    sphereSubMesh.indexCount         = static_cast<UINT>(sphere.m_indices32.size());
     sphereSubMesh.startIndexLocation = sphereIndexOffset;
     sphereSubMesh.baseVertexLocation = sphereVertexOffset;
 
+    SubmeshGeometry cylSubMesh    = {};
+    cylSubMesh.indexCount         = static_cast<UINT>(cyl.m_indices32.size());
+    cylSubMesh.startIndexLocation = cylIndexOffset;
+    cylSubMesh.baseVertexLocation = cylVertexOffset;
+
     auto totalVertexCount = box.m_vertices.size()
                           + grid.m_vertices.size()
-                          + sphere.m_vertices.size();
+                          + sphere.m_vertices.size()
+                          + cyl.m_vertices.size();
 
     std::vector<FrameResource::Vertex> vertices(totalVertexCount);
 
@@ -428,10 +437,17 @@ void ShapesDemo::ShapesBuildShapeGeometry()
         vertices[k].color = XMFLOAT4(DirectX::Colors::IndianRed);
     }
 
+    for (size_t i = 0; i < cyl.m_vertices.size(); ++i, ++k)
+    {
+        vertices[k].pos   = cyl.m_vertices[i].m_position;
+        vertices[k].color = XMFLOAT4(DirectX::Colors::BlueViolet);
+    }
+
     std::vector<std::uint32_t> indices;
     indices.insert(indices.end(), std::cbegin(box.m_indices32), std::cend(box.m_indices32));
     indices.insert(indices.end(), std::cbegin(grid.m_indices32), std::cend(grid.m_indices32));
     indices.insert(indices.end(), std::cbegin(sphere.m_indices32), std::cend(sphere.m_indices32));
+    indices.insert(indices.end(), std::cbegin(cyl.m_indices32), std::cend(cyl.m_indices32));
 
     const UINT vbByteSize = static_cast<UINT>(vertices.size()) * sizeof(FrameResource::Vertex);
     const UINT ibByteSize = static_cast<UINT>(indices.size())  * sizeof(std::uint32_t);
@@ -465,6 +481,7 @@ void ShapesDemo::ShapesBuildShapeGeometry()
     geo->drawArgs["box"]    = boxSubmesh;
     geo->drawArgs["grid"]   = gridSubMesh;
     geo->drawArgs["sphere"] = sphereSubMesh;
+    geo->drawArgs["cyl"]    =  cylSubMesh;
 
     m_geometries[geo->name] = std::move(geo);
 }
@@ -503,6 +520,16 @@ void ShapesDemo::ShapesBuildRenderItems()
     sphereItem->m_startIndexLocation = sphereItem->m_pGeo->drawArgs["sphere"].startIndexLocation;
     sphereItem->m_baseVertexLocation = sphereItem->m_pGeo->drawArgs["sphere"].baseVertexLocation;
     m_allRenderItems.push_back(std::move(sphereItem));
+
+    auto cylItem = std::make_unique<RenderItem>();
+    XMStoreFloat4x4(&cylItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f));
+    cylItem->m_objCbIndex         = objectCbIndex++;
+    cylItem->m_pGeo               = m_geometries["shapeGeo"].get();
+    cylItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    cylItem->m_indexCount         = cylItem->m_pGeo->drawArgs["cyl"].indexCount;
+    cylItem->m_startIndexLocation = cylItem->m_pGeo->drawArgs["cyl"].startIndexLocation;
+    cylItem->m_baseVertexLocation = cylItem->m_pGeo->drawArgs["cyl"].baseVertexLocation;
+    m_allRenderItems.push_back(std::move(cylItem));
 
     //for(auto& e : m_allRenderItems)
     //    m_opaqueItems.push_back(e.get());
