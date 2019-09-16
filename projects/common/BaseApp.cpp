@@ -338,7 +338,7 @@ bool BaseApp::InitMainWindow()
     result = RegisterClassW(&wc);
     if (result == true) {
         mhMainWnd = CreateWindowW(L"BaseAppWindow",
-                                  L"D3D init",
+                                  L"Dx12 examples",
                                   WS_OVERLAPPEDWINDOW,
                                   CW_USEDEFAULT,
                                   CW_USEDEFAULT,
