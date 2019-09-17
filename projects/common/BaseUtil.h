@@ -24,6 +24,9 @@
 #include "d3dx12.h"
 #include "MathHelper.h"
 
+extern const unsigned int NumFrameResources;
+
+// ====================================================================================================================
 namespace util
 {
 
@@ -244,6 +247,21 @@ struct MeshGeometry
         vertexBufferUploader = nullptr;
         indexBufferUploader = nullptr;
     }
+};
+
+// ====================================================================================================================
+struct Material
+{
+    std::string m_name;
+    int         m_matCbIndex = -1;
+    int         m_diffuseSrvHeapIndex = -1;
+    int         m_normalSrvHeapIndex  = -1;
+    int         m_numFramesDirty = NumFrameResources;
+
+    DirectX::XMFLOAT4   m_diffuseAlbedo = {1.0f, 1.0f, 1.0f, 1.0f};
+    DirectX::XMFLOAT3   m_fresnelR0 = {0.01f, 0.01f, 0.01f };
+    float               m_roughness = 0.25f;
+    DirectX::XMFLOAT4X4 m_matTransform = MathHelper::Identity4x4();
 };
 
 #endif VKD3D12_UTIL_H

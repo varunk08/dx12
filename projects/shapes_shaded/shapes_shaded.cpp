@@ -22,7 +22,7 @@ using namespace std;
 using namespace DirectX;
 
 // ====================================================================================================================
-constexpr unsigned int NumFrameResources = 3;
+const unsigned int NumFrameResources = 3;
 
 // ====================================================================================================================
 struct RenderItem
