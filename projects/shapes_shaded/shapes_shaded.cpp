@@ -34,9 +34,11 @@ struct RenderItem
         UINT                     m_objCbIndex = -1;
         MeshGeometry*            m_pGeo = nullptr;
         D3D12_PRIMITIVE_TOPOLOGY m_primitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        UINT                     m_indexCount                        = 0;
-        UINT                     m_startIndexLocation                = 0;
-        INT                      m_baseVertexLocation                 = 0;
+        UINT                     m_indexCount = 0;
+        UINT                     m_startIndexLocation = 0;
+        INT                      m_baseVertexLocation = 0;
+        Material*                m_pMat = nullptr;
+        XMFLOAT4X4               m_texTransform = MathHelper::Identity4x4();
 };
 
 // ====================================================================================================================
@@ -68,17 +70,19 @@ private:
     void UpdateCamera(const BaseTimer& gt);
     void UpdateObjectCBs(const BaseTimer& gt);
     void UpdateMainPassCB(const BaseTimer& timer);
+    void UpdateMaterialCBs(const BaseTimer& timer);
 
-    void ShapesBuildRootSignature();
-    void ShapesBuildShadersAndInputLayout();
-    void ShapesBuildShapeGeometry();
-    void ShapesBuildRenderItems();
-    void ShapesBuildFrameResources();
-    void ShapesBuildDescriptorHeaps();
-    void ShapesBuildConstBufferViews();
-    void ShapesBuildPsos();
+    void BuildRootSignature();
+    void BuildShadersAndInputLayout();
+    void BuildShapeGeometry();
+    void BuildRenderItems();
+    void BuildFrameResources();
+    void BuildDescriptorHeaps();
+    void BuildConstBufferViews();
+    void BuildPsos();
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& rItems);
     void UpdateRenderItems();
+    void BuildMaterials();
 
     FrameResource::PassConstants                                   m_mainPassCB;
     bool                                                           m_isWireFrame = false;
@@ -102,6 +106,7 @@ private:
     int                                                            m_currFrameResourceIndex = 0;
     FrameResource::FrameResource*                                  m_currFrameResource = nullptr;
     Shapes                                                         m_currentShape = Shapes::Box;
+    std::unordered_map<std::string, std::unique_ptr<Material>>     m_materials;
 };
 
 // ====================================================================================================================
@@ -113,14 +118,15 @@ bool ShapesDemo::Initialize()
     {
         ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
 
-        ShapesBuildRootSignature();
-        ShapesBuildShadersAndInputLayout();
-        ShapesBuildShapeGeometry();
-        ShapesBuildRenderItems();
-        ShapesBuildFrameResources();
-        ShapesBuildDescriptorHeaps();
-        ShapesBuildConstBufferViews();
-        ShapesBuildPsos();
+        BuildRootSignature();
+        BuildShadersAndInputLayout();
+        BuildShapeGeometry();
+        BuildMaterials();
+        BuildRenderItems();
+        BuildFrameResources();
+        BuildDescriptorHeaps();
+        BuildConstBufferViews();
+        BuildPsos();
 
         ThrowIfFailed(m_commandList->Close());
 
@@ -318,7 +324,7 @@ void ShapesDemo::UpdateCamera(const BaseTimer& gt)
 }
 
 // ====================================================================================================================
-void ShapesDemo::ShapesBuildRootSignature()
+void ShapesDemo::BuildRootSignature()
 {
     // Create a couple of "descriptor range"s. These map registers in the shader to the
     // resources here.
@@ -360,7 +366,7 @@ void ShapesDemo::ShapesBuildRootSignature()
 }
 
 // ====================================================================================================================
-void ShapesDemo::ShapesBuildShadersAndInputLayout()
+void ShapesDemo::BuildShadersAndInputLayout()
 {
     m_shaders["standardVS"] = BaseUtil::CompileShader(L"shaders\\color.hlsl", nullptr, "VS", "vs_5_1");
     m_shaders["opaquePS"]   = BaseUtil::CompileShader(L"shaders\\color.hlsl", nullptr, "PS", "ps_5_1");
@@ -373,7 +379,7 @@ void ShapesDemo::ShapesBuildShadersAndInputLayout()
 }
 
 // ====================================================================================================================
-void ShapesDemo::ShapesBuildShapeGeometry()
+void ShapesDemo::BuildShapeGeometry()
 {
     GeometryGenerator geoGen;
     MeshData box    = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 5);
@@ -487,7 +493,21 @@ void ShapesDemo::ShapesBuildShapeGeometry()
 }
 
 // ====================================================================================================================
-void ShapesDemo::ShapesBuildRenderItems()
+void ShapesDemo::BuildMaterials()
+{
+    auto brickMat                   = std::make_unique<Material>();
+    brickMat->m_name                = "bricksmat";
+    brickMat->m_matCbIndex          = 0;
+    brickMat->m_diffuseSrvHeapIndex = 0;
+    brickMat->m_diffuseAlbedo       = XMFLOAT4(Colors::ForestGreen);
+    brickMat->m_fresnelR0           = XMFLOAT3(0.02f, 0.02f, 0.02f);
+    brickMat->m_roughness           = 0.1f;
+
+    m_materials["bricksmat"] = std::move(brickMat);
+}
+
+// ====================================================================================================================
+void ShapesDemo::BuildRenderItems()
 {
     uint32 objectCbIndex = 0;
 
@@ -536,7 +556,7 @@ void ShapesDemo::ShapesBuildRenderItems()
 }
 
 // ====================================================================================================================
-void ShapesDemo::ShapesBuildFrameResources()
+void ShapesDemo::BuildFrameResources()
 {
     for (int i = 0; i < NumFrameResources; i++)
     {
@@ -548,7 +568,7 @@ void ShapesDemo::ShapesBuildFrameResources()
 }
 
 // ====================================================================================================================
-void ShapesDemo::ShapesBuildDescriptorHeaps()
+void ShapesDemo::BuildDescriptorHeaps()
 {
     UINT objCount       = (UINT)m_allRenderItems.size();
     UINT numDescriptors = (objCount + 1) * NumFrameResources;
@@ -564,7 +584,7 @@ void ShapesDemo::ShapesBuildDescriptorHeaps()
 
 
 // ====================================================================================================================
-void ShapesDemo::ShapesBuildConstBufferViews()
+void ShapesDemo::BuildConstBufferViews()
 {
     UINT objCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::ObjectConstants));
     UINT objCount      = (UINT) m_allRenderItems.size();
@@ -609,7 +629,7 @@ void ShapesDemo::ShapesBuildConstBufferViews()
 }
 
 // ====================================================================================================================
-void ShapesDemo::ShapesBuildPsos()
+void ShapesDemo::BuildPsos()
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc = { };
 
