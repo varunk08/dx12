@@ -25,6 +25,7 @@
 #include "MathHelper.h"
 
 extern const unsigned int NumFrameResources;
+const unsigned int MaxLights = 16;
 
 // ====================================================================================================================
 namespace util

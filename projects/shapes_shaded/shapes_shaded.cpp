@@ -233,6 +233,7 @@ void ShapesDemo::Update(const BaseTimer& gt)
     UpdateRenderItems();
 
     UpdateObjectCBs(gt);
+    UpdateMaterialCBs(gt);
     UpdateMainPassCB(gt);
 }
 
@@ -242,15 +243,7 @@ void ShapesDemo::Draw(const BaseTimer& gt)
     auto cmdListAlloc = m_currFrameResource->m_cmdListAlloc;
 
     ThrowIfFailed(cmdListAlloc->Reset());
-
-    if (m_isWireFrame)
-    {
-        ThrowIfFailed(m_commandList->Reset(cmdListAlloc.Get(), m_psos["opaque_wireframe"].Get()));
-    }
-    else
-    {
-        ThrowIfFailed(m_commandList->Reset(cmdListAlloc.Get(), m_psos["opaque"].Get()));
-    }
+    ThrowIfFailed(m_commandList->Reset(cmdListAlloc.Get(), m_psos["opaque"].Get()));
 
     m_commandList->RSSetViewports(1, &m_screenViewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
@@ -258,6 +251,7 @@ void ShapesDemo::Draw(const BaseTimer& gt)
                                    &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
                                    D3D12_RESOURCE_STATE_PRESENT,
                                    D3D12_RESOURCE_STATE_RENDER_TARGET));
+
     m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::AntiqueWhite, 0, nullptr);
     m_commandList->ClearDepthStencilView(DepthStencilView(),
                                          D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
@@ -265,16 +259,13 @@ void ShapesDemo::Draw(const BaseTimer& gt)
                                          0,
                                          0,
                                          nullptr);
+
     m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-    ID3D12DescriptorHeap* descriptorHeaps[] = { m_cbvHeap.Get() };
-    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
-
-    int passCbvIndex = m_passCbvOffset + m_currFrameResourceIndex;
-    auto passCbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvHeap->GetGPUDescriptorHandleForHeapStart());
-    passCbvHandle.Offset(passCbvIndex, m_cbvSrvUavDescriptorSize);
-    m_commandList->SetGraphicsRootDescriptorTable(1, passCbvHandle);
+    
+    auto passCb = m_currFrameResource->m_passCb->Resource();
+    m_commandList->SetGraphicsRootConstantBufferView(2, passCb->GetGPUVirtualAddress());
 
     DrawRenderItems(m_commandList.Get(), m_opaqueItems);
 
@@ -326,21 +317,14 @@ void ShapesDemo::UpdateCamera(const BaseTimer& gt)
 // ====================================================================================================================
 void ShapesDemo::BuildRootSignature()
 {
-    // Create a couple of "descriptor range"s. These map registers in the shader to the
-    // resources here.
-    CD3DX12_DESCRIPTOR_RANGE cbvTable0;
-    cbvTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
-
-    CD3DX12_DESCRIPTOR_RANGE cbvTable1;
-    cbvTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1);
-
     // A "root parameter" can be a descriptor table, root constant or descriptor.
-    CD3DX12_ROOT_PARAMETER slotRootParameter[2];
-    slotRootParameter[0].InitAsDescriptorTable(1, &cbvTable0);
-    slotRootParameter[1].InitAsDescriptorTable(1, &cbvTable1);
+    CD3DX12_ROOT_PARAMETER slotRootParameter[3];
+    slotRootParameter[0].InitAsConstantBufferView(0);
+    slotRootParameter[1].InitAsConstantBufferView(1);
+    slotRootParameter[2].InitAsConstantBufferView(2);
 
     // A root signature is an array of root parameters.
-    CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(2,
+    CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(3,
                                              slotRootParameter,
                                              0,
                                              nullptr,
@@ -368,13 +352,15 @@ void ShapesDemo::BuildRootSignature()
 // ====================================================================================================================
 void ShapesDemo::BuildShadersAndInputLayout()
 {
+    
     m_shaders["standardVS"] = BaseUtil::CompileShader(L"shaders\\color.hlsl", nullptr, "VS", "vs_5_1");
     m_shaders["opaquePS"]   = BaseUtil::CompileShader(L"shaders\\color.hlsl", nullptr, "PS", "ps_5_1");
 
     m_inputLayout =
     {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
     };
 }
 
@@ -428,25 +414,25 @@ void ShapesDemo::BuildShapeGeometry()
     for (size_t i = 0; i < box.m_vertices.size(); ++i, ++k)
     {
         vertices[k].pos   = box.m_vertices[i].m_position;
-        vertices[k].color = XMFLOAT4(DirectX::Colors::DarkGreen);
+        vertices[k].normal = box.m_vertices[i].m_normal;
     }
 
     for (size_t i = 0; i < grid.m_vertices.size(); ++i, ++k)
     {
         vertices[k].pos   = grid.m_vertices[i].m_position;
-        vertices[k].color = XMFLOAT4(DirectX::Colors::Chocolate);
+        vertices[k].normal = box.m_vertices[i].m_normal;
     }
 
     for (size_t i = 0; i < sphere.m_vertices.size(); ++i, ++k)
     {
         vertices[k].pos   = sphere.m_vertices[i].m_position;
-        vertices[k].color = XMFLOAT4(DirectX::Colors::IndianRed);
+        vertices[k].normal = box.m_vertices[i].m_normal;
     }
 
     for (size_t i = 0; i < cyl.m_vertices.size(); ++i, ++k)
     {
         vertices[k].pos   = cyl.m_vertices[i].m_position;
-        vertices[k].color = XMFLOAT4(DirectX::Colors::BlueViolet);
+        vertices[k].normal = box.m_vertices[i].m_normal;
     }
 
     std::vector<std::uint32_t> indices;
@@ -513,8 +499,10 @@ void ShapesDemo::BuildRenderItems()
 
     auto boxItem = std::make_unique<RenderItem>();
     XMStoreFloat4x4(&boxItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f));
+    XMStoreFloat4x4(&boxItem->m_texTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
     boxItem->m_objCbIndex         = objectCbIndex++;
     boxItem->m_pGeo               = m_geometries["shapeGeo"].get();
+    boxItem->m_pMat               = m_materials["bricksmat"].get();
     boxItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     boxItem->m_indexCount         = boxItem->m_pGeo->drawArgs["box"].indexCount;
     boxItem->m_startIndexLocation = boxItem->m_pGeo->drawArgs["box"].startIndexLocation;
@@ -525,6 +513,7 @@ void ShapesDemo::BuildRenderItems()
     XMStoreFloat4x4(&gridItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
     gridItem->m_objCbIndex         = objectCbIndex++;
     gridItem->m_pGeo               = m_geometries["shapeGeo"].get();
+    gridItem->m_pMat               = m_materials["bricksmat"].get();
     gridItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     gridItem->m_indexCount         = gridItem->m_pGeo->drawArgs["grid"].indexCount;
     gridItem->m_startIndexLocation = gridItem->m_pGeo->drawArgs["grid"].startIndexLocation;
@@ -535,6 +524,7 @@ void ShapesDemo::BuildRenderItems()
     XMStoreFloat4x4(&sphereItem->m_world, XMMatrixScaling(3.0f, 3.0f, 3.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f));
     sphereItem->m_objCbIndex         = objectCbIndex++;
     sphereItem->m_pGeo               = m_geometries["shapeGeo"].get();
+    sphereItem->m_pMat               = m_materials["bricksmat"].get();
     sphereItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     sphereItem->m_indexCount         = sphereItem->m_pGeo->drawArgs["sphere"].indexCount;
     sphereItem->m_startIndexLocation = sphereItem->m_pGeo->drawArgs["sphere"].startIndexLocation;
@@ -545,6 +535,7 @@ void ShapesDemo::BuildRenderItems()
     XMStoreFloat4x4(&cylItem->m_world, XMMatrixScaling(2.0f, 1.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f));
     cylItem->m_objCbIndex         = objectCbIndex++;
     cylItem->m_pGeo               = m_geometries["shapeGeo"].get();
+    cylItem->m_pMat               = m_materials["bricksmat"].get();
     cylItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     cylItem->m_indexCount         = cylItem->m_pGeo->drawArgs["cyl"].indexCount;
     cylItem->m_startIndexLocation = cylItem->m_pGeo->drawArgs["cyl"].startIndexLocation;
@@ -563,7 +554,8 @@ void ShapesDemo::BuildFrameResources()
         m_frameResources.push_back(
             std::make_unique<FrameResource::FrameResource>(m_d3dDevice.Get(),
                                                            1,
-                                                           static_cast<UINT>(m_allRenderItems.size())));
+                                                           static_cast<UINT>(m_allRenderItems.size()),
+                                                           static_cast<UINT>(m_materials.size())));
     }
 }
 
@@ -647,7 +639,6 @@ void ShapesDemo::BuildPsos()
         m_shaders["opaquePS"]->GetBufferSize()
     };
     opaquePsoDesc.RasterizerState          = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
     opaquePsoDesc.BlendState               = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     opaquePsoDesc.DepthStencilState        = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     opaquePsoDesc.SampleMask               = UINT_MAX;
@@ -664,6 +655,9 @@ void ShapesDemo::BuildPsos()
 void ShapesDemo::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& rItems)
 {
     UINT objCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::ObjectConstants));
+    UINT matCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::MaterialConstants));
+
+    auto matCb = m_currFrameResource->m_matCb->Resource();
     auto objectCb = m_currFrameResource->m_objCb->Resource();
 
     for (size_t i = 0; i < rItems.size(); ++i)
@@ -673,10 +667,12 @@ void ShapesDemo::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::
         cmdList->IASetIndexBuffer(&ri->m_pGeo->IndexBufferView());
         cmdList->IASetPrimitiveTopology(ri->m_primitiveType);
 
-        UINT cbvIndex = m_currFrameResourceIndex * (UINT) m_allRenderItems.size() + ri->m_objCbIndex;
-        auto cbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvHeap->GetGPUDescriptorHandleForHeapStart());
-        cbvHandle.Offset(cbvIndex, m_cbvSrvUavDescriptorSize);
-        cmdList->SetGraphicsRootDescriptorTable(0, cbvHandle);
+        D3D12_GPU_VIRTUAL_ADDRESS objCbAddress = objectCb->GetGPUVirtualAddress() + ri->m_objCbIndex * objCbByteSize;
+        D3D12_GPU_VIRTUAL_ADDRESS matCbAddress= matCb->GetGPUVirtualAddress() + ri->m_pMat->m_matCbIndex * matCbByteSize;
+        cmdList->SetGraphicsRootConstantBufferView(0, objCbAddress);
+        cmdList->SetGraphicsRootConstantBufferView(1, matCbAddress);
+
+        // The actual draw call
         cmdList->DrawIndexedInstanced(ri->m_indexCount, 1, ri->m_startIndexLocation, ri->m_baseVertexLocation, 0);
     }
 }
@@ -692,21 +688,47 @@ void ShapesDemo::UpdateRenderItems()
 void ShapesDemo::UpdateObjectCBs(const BaseTimer& timer)
 {
     auto currObjectCB = m_currFrameResource->m_objCb.get();
-
-    //XMMATRIX world = XMLoadFloat4x4(&m_opaqueItems[0]->m_world);
-    //FrameResource::ObjectConstants objConstants;
-    //XMStoreFloat4x4(&objConstants.m_world, XMMatrixTranspose(world));
-    //currObjectCB->CopyData(m_opaqueItems[0]->m_objCbIndex, objConstants);
-
     for (auto& e : m_allRenderItems)
     {
         if (e->m_numFramesDirty > 0)
         {
             XMMATRIX world = XMLoadFloat4x4(&e->m_world);
+            XMMATRIX texTransform = XMLoadFloat4x4(&e->m_texTransform);
+
             FrameResource::ObjectConstants objConstants;
             XMStoreFloat4x4(&objConstants.m_world, XMMatrixTranspose(world));
+            XMStoreFloat4x4(&objConstants.m_texTransform, XMMatrixTranspose(texTransform));
+
             currObjectCB->CopyData(e->m_objCbIndex, objConstants);
+
             e->m_numFramesDirty--;
+        }
+    }
+}
+
+// ====================================================================================================================
+void ShapesDemo::UpdateMaterialCBs(const BaseTimer& timer)
+{
+    auto currMaterialCB = m_currFrameResource->m_matCb.get();
+    for (auto& e : m_materials)
+    {
+        // Only update the cbuffer data if the constants have changed.  If the cbuffer
+        // data changes, it needs to be updated for each FrameResource.
+        Material* mat = e.second.get();
+        if (mat->m_numFramesDirty > 0)
+        {
+            XMMATRIX matTransform = XMLoadFloat4x4(&mat->m_matTransform);
+
+            FrameResource::MaterialConstants matConstants;
+            matConstants.diffuseAlbedo = mat->m_diffuseAlbedo;
+            matConstants.fresnelR0 = mat->m_fresnelR0;
+            matConstants.roughness = mat->m_roughness;
+            XMStoreFloat4x4(&matConstants.matTransform, XMMatrixTranspose(matTransform));
+
+            currMaterialCB->CopyData(mat->m_matCbIndex, matConstants);
+
+            // Next FrameResource need to be updated too.
+            mat->m_numFramesDirty--;
         }
     }
 }
@@ -736,6 +758,14 @@ void ShapesDemo::UpdateMainPassCB(const BaseTimer& timer)
     m_mainPassCB.farZ                = 1000.0f;
     m_mainPassCB.totalTime           = timer.TotalTimeInSecs();
     m_mainPassCB.deltaTime           = timer.DeltaTimeInSecs();
+
+    m_mainPassCB.ambientLight        = { 0.25f, 0.25f, 0.35f, 1.0f };
+    m_mainPassCB.lights[0].direction = { 0.57735f, -0.57735f, 0.57735f };
+    m_mainPassCB.lights[0].strength  = { 0.6f, 0.6f, 0.6f };
+    m_mainPassCB.lights[1].direction = { -0.57735f, -0.57735f, 0.57735f };
+    m_mainPassCB.lights[1].strength  = { 0.3f, 0.3f, 0.3f };
+    m_mainPassCB.lights[2].direction = { 0.0f, -0.707f, -0.707f };
+    m_mainPassCB.lights[2].strength  = { 0.15f, 0.15f, 0.15f };
 
     auto currPassCB = m_currFrameResource->m_passCb.get();
     currPassCB->CopyData(0, m_mainPassCB);
