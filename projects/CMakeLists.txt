@@ -23,6 +23,7 @@ set (PROJECTS
      d3d_initialization
      draw_box
      shapes
-     shapes_shaded)
+     shapes_shaded
+	 texturing)
 
 buildAllProjects()

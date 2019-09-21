@@ -413,33 +413,33 @@ void ShapesDemo::BuildShapeGeometry()
     UINT k = 0;
     for (size_t i = 0; i < box.m_vertices.size(); ++i, ++k)
     {
-        vertices[k].pos   = box.m_vertices[i].m_position;
+        vertices[k].pos    = box.m_vertices[i].m_position;
         vertices[k].normal = box.m_vertices[i].m_normal;
     }
 
     for (size_t i = 0; i < grid.m_vertices.size(); ++i, ++k)
     {
-        vertices[k].pos   = grid.m_vertices[i].m_position;
+        vertices[k].pos    = grid.m_vertices[i].m_position;
         vertices[k].normal = grid.m_vertices[i].m_normal;
     }
 
     for (size_t i = 0; i < sphere.m_vertices.size(); ++i, ++k)
     {
-        vertices[k].pos   = sphere.m_vertices[i].m_position;
+        vertices[k].pos    = sphere.m_vertices[i].m_position;
         vertices[k].normal = sphere.m_vertices[i].m_normal;
     }
 
     for (size_t i = 0; i < cyl.m_vertices.size(); ++i, ++k)
     {
-        vertices[k].pos   = cyl.m_vertices[i].m_position;
+        vertices[k].pos    = cyl.m_vertices[i].m_position;
         vertices[k].normal = cyl.m_vertices[i].m_normal;
     }
 
     std::vector<std::uint32_t> indices;
-    indices.insert(indices.end(), std::cbegin(box.m_indices32), std::cend(box.m_indices32));
-    indices.insert(indices.end(), std::cbegin(grid.m_indices32), std::cend(grid.m_indices32));
+    indices.insert(indices.end(), std::cbegin(box.m_indices32),    std::cend(box.m_indices32));
+    indices.insert(indices.end(), std::cbegin(grid.m_indices32),   std::cend(grid.m_indices32));
     indices.insert(indices.end(), std::cbegin(sphere.m_indices32), std::cend(sphere.m_indices32));
-    indices.insert(indices.end(), std::cbegin(cyl.m_indices32), std::cend(cyl.m_indices32));
+    indices.insert(indices.end(), std::cbegin(cyl.m_indices32),    std::cend(cyl.m_indices32));
 
     const UINT vbByteSize = static_cast<UINT>(vertices.size()) * sizeof(FrameResource::Vertex);
     const UINT ibByteSize = static_cast<UINT>(indices.size())  * sizeof(std::uint32_t);
@@ -494,13 +494,22 @@ void ShapesDemo::BuildMaterials()
     auto stoneMat                   = std::make_unique<Material>();
     stoneMat->m_name                = "stonemat";
     stoneMat->m_matCbIndex          = matIndex++;
-    stoneMat->m_diffuseSrvHeapIndex = 0;
+    stoneMat->m_diffuseSrvHeapIndex = 1;
     stoneMat->m_diffuseAlbedo       = XMFLOAT4(Colors::LightSteelBlue);
     stoneMat->m_fresnelR0           = XMFLOAT3(0.05f, 0.05f, 0.05f);
     stoneMat->m_roughness           = 0.3f;
 
+    auto tilemat                   = std::make_unique<Material>();
+    tilemat->m_name                = "tilemat";
+    tilemat->m_matCbIndex          = matIndex++;
+    tilemat->m_diffuseSrvHeapIndex = 2;
+    tilemat->m_diffuseAlbedo       = XMFLOAT4(Colors::LightGray);
+    tilemat->m_fresnelR0           = XMFLOAT3(0.02f, 0.02f, 0.02f);
+    tilemat->m_roughness           = 0.2f;
+
     m_materials["bricksmat"] = std::move(brickMat);
     m_materials["stonemat"]  = std::move(stoneMat);
+    m_materials["tilemat"]   = std::move(tilemat);
 }
 
 // ====================================================================================================================
@@ -524,7 +533,7 @@ void ShapesDemo::BuildRenderItems()
     XMStoreFloat4x4(&gridItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
     gridItem->m_objCbIndex         = objectCbIndex++;
     gridItem->m_pGeo               = m_geometries["shapeGeo"].get();
-    gridItem->m_pMat               = m_materials["stonemat"].get();
+    gridItem->m_pMat               = m_materials["tilemat"].get();
     gridItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     gridItem->m_indexCount         = gridItem->m_pGeo->drawArgs["grid"].indexCount;
     gridItem->m_startIndexLocation = gridItem->m_pGeo->drawArgs["grid"].startIndexLocation;
@@ -535,7 +544,7 @@ void ShapesDemo::BuildRenderItems()
     XMStoreFloat4x4(&sphereItem->m_world, XMMatrixScaling(3.0f, 3.0f, 3.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f));
     sphereItem->m_objCbIndex         = objectCbIndex++;
     sphereItem->m_pGeo               = m_geometries["shapeGeo"].get();
-    sphereItem->m_pMat               = m_materials["bricksmat"].get();
+    sphereItem->m_pMat               = m_materials["stonemat"].get();
     sphereItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     sphereItem->m_indexCount         = sphereItem->m_pGeo->drawArgs["sphere"].indexCount;
     sphereItem->m_startIndexLocation = sphereItem->m_pGeo->drawArgs["sphere"].startIndexLocation;
