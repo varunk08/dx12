@@ -358,9 +358,9 @@ void ShapesDemo::BuildShadersAndInputLayout()
 
     m_inputLayout =
     {
-        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
     };
 }
 
@@ -420,19 +420,19 @@ void ShapesDemo::BuildShapeGeometry()
     for (size_t i = 0; i < grid.m_vertices.size(); ++i, ++k)
     {
         vertices[k].pos   = grid.m_vertices[i].m_position;
-        vertices[k].normal = box.m_vertices[i].m_normal;
+        vertices[k].normal = grid.m_vertices[i].m_normal;
     }
 
     for (size_t i = 0; i < sphere.m_vertices.size(); ++i, ++k)
     {
         vertices[k].pos   = sphere.m_vertices[i].m_position;
-        vertices[k].normal = box.m_vertices[i].m_normal;
+        vertices[k].normal = sphere.m_vertices[i].m_normal;
     }
 
     for (size_t i = 0; i < cyl.m_vertices.size(); ++i, ++k)
     {
         vertices[k].pos   = cyl.m_vertices[i].m_position;
-        vertices[k].normal = box.m_vertices[i].m_normal;
+        vertices[k].normal = cyl.m_vertices[i].m_normal;
     }
 
     std::vector<std::uint32_t> indices;
@@ -481,15 +481,26 @@ void ShapesDemo::BuildShapeGeometry()
 // ====================================================================================================================
 void ShapesDemo::BuildMaterials()
 {
+    uint32 matIndex = 0;
+
     auto brickMat                   = std::make_unique<Material>();
     brickMat->m_name                = "bricksmat";
-    brickMat->m_matCbIndex          = 0;
+    brickMat->m_matCbIndex          = matIndex++;
     brickMat->m_diffuseSrvHeapIndex = 0;
     brickMat->m_diffuseAlbedo       = XMFLOAT4(Colors::ForestGreen);
     brickMat->m_fresnelR0           = XMFLOAT3(0.02f, 0.02f, 0.02f);
     brickMat->m_roughness           = 0.1f;
 
+    auto stoneMat                   = std::make_unique<Material>();
+    stoneMat->m_name                = "stonemat";
+    stoneMat->m_matCbIndex          = matIndex++;
+    stoneMat->m_diffuseSrvHeapIndex = 0;
+    stoneMat->m_diffuseAlbedo       = XMFLOAT4(Colors::LightSteelBlue);
+    stoneMat->m_fresnelR0           = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    stoneMat->m_roughness           = 0.3f;
+
     m_materials["bricksmat"] = std::move(brickMat);
+    m_materials["stonemat"]  = std::move(stoneMat);
 }
 
 // ====================================================================================================================
@@ -513,7 +524,7 @@ void ShapesDemo::BuildRenderItems()
     XMStoreFloat4x4(&gridItem->m_world, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f));
     gridItem->m_objCbIndex         = objectCbIndex++;
     gridItem->m_pGeo               = m_geometries["shapeGeo"].get();
-    gridItem->m_pMat               = m_materials["bricksmat"].get();
+    gridItem->m_pMat               = m_materials["stonemat"].get();
     gridItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     gridItem->m_indexCount         = gridItem->m_pGeo->drawArgs["grid"].indexCount;
     gridItem->m_startIndexLocation = gridItem->m_pGeo->drawArgs["grid"].startIndexLocation;
@@ -535,7 +546,7 @@ void ShapesDemo::BuildRenderItems()
     XMStoreFloat4x4(&cylItem->m_world, XMMatrixScaling(2.0f, 1.0f, 2.0f) * XMMatrixTranslation(0.0f, 0.0f, 0.0f));
     cylItem->m_objCbIndex         = objectCbIndex++;
     cylItem->m_pGeo               = m_geometries["shapeGeo"].get();
-    cylItem->m_pMat               = m_materials["bricksmat"].get();
+    cylItem->m_pMat               = m_materials["stonemat"].get();
     cylItem->m_primitiveType      = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     cylItem->m_indexCount         = cylItem->m_pGeo->drawArgs["cyl"].indexCount;
     cylItem->m_startIndexLocation = cylItem->m_pGeo->drawArgs["cyl"].startIndexLocation;
@@ -573,7 +584,6 @@ void ShapesDemo::BuildDescriptorHeaps()
     cbvHeapDesc.NodeMask                   = 0;
     ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&m_cbvHeap)));
 }
-
 
 // ====================================================================================================================
 void ShapesDemo::BuildConstBufferViews()
@@ -760,10 +770,13 @@ void ShapesDemo::UpdateMainPassCB(const BaseTimer& timer)
     m_mainPassCB.deltaTime           = timer.DeltaTimeInSecs();
 
     m_mainPassCB.ambientLight        = { 0.25f, 0.25f, 0.35f, 1.0f };
+    
     m_mainPassCB.lights[0].direction = { 0.57735f, -0.57735f, 0.57735f };
     m_mainPassCB.lights[0].strength  = { 0.6f, 0.6f, 0.6f };
+
     m_mainPassCB.lights[1].direction = { -0.57735f, -0.57735f, 0.57735f };
     m_mainPassCB.lights[1].strength  = { 0.3f, 0.3f, 0.3f };
+    
     m_mainPassCB.lights[2].direction = { 0.0f, -0.707f, -0.707f };
     m_mainPassCB.lights[2].strength  = { 0.15f, 0.15f, 0.15f };
 

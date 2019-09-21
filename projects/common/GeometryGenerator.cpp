@@ -219,7 +219,7 @@ MeshData GeometryGenerator::CreateGrid(
             float x = -halfWidth + j * dx;
 
             meshData.m_vertices[i * n + j].m_position = XMFLOAT3(x, 0.0f, z);
-            meshData.m_vertices[i * n + j].m_normal = XMFLOAT3(0.0f, 1.0f, 0.0f);
+            meshData.m_vertices[i * n + j].m_normal   = XMFLOAT3(0.0f, 1.0f, 0.0f);
             meshData.m_vertices[i * n + j].m_tangentU = XMFLOAT3(1.0f, 0.0f, 0.0f);
 
             // Stretch texture over grid.
