@@ -22,6 +22,7 @@
 #include <DirectXCollision.h>
 
 #include "d3dx12.h"
+#include "DDSTextureLoader.h"
 #include "MathHelper.h"
 
 extern const unsigned int NumFrameResources;
@@ -197,6 +198,7 @@ public:
     }
 };
 
+// ====================================================================================================================
 struct SubmeshGeometry
 {
     UINT indexCount;
@@ -206,6 +208,7 @@ struct SubmeshGeometry
     DirectX::BoundingBox Bounds;
 };
 
+// ====================================================================================================================
 struct MeshGeometry
 {
     std::string name;
@@ -263,6 +266,18 @@ struct Material
     DirectX::XMFLOAT3   m_fresnelR0 = {0.01f, 0.01f, 0.01f };
     float               m_roughness = 0.25f;
     DirectX::XMFLOAT4X4 m_matTransform = MathHelper::Identity4x4();
+};
+
+// ====================================================================================================================
+class Texture
+{
+public:
+    std::string  name_;
+    std::wstring filename_;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> resource_ = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12Resource> uploadHeap_ = nullptr;
+
 };
 
 #endif VKD3D12_UTIL_H
