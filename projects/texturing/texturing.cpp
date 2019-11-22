@@ -78,6 +78,8 @@ public:
     void BuildFrameResources();
     void BuildPipelines();
 
+    void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& items);
+
 private:
     ComPtr<ID3D12RootSignature> rootSignature_ = nullptr;
     ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_ = nullptr;
@@ -158,8 +160,18 @@ void TextureDemo::Draw(const BaseTimer& timer)
 
     // Perform operations on the render target image.
     m_commandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::LightYellow, 0, nullptr);
-
+    m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
     m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
+
+    ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap_.Get() };
+    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+    m_commandList->SetGraphicsRootSignature(rootSignature_.Get());
+
+    auto passCB = currentFrameRes_->m_passCb->Resource();
+    m_commandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+
 
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
 
@@ -401,6 +413,12 @@ void TextureDemo::BuildPipelines()
     opaquePipeDesc.SampleDesc.Quality = m_4xMsaaEn ? m_4xMsaaQuality - 1 : 0;
     opaquePipeDesc.DSVFormat = m_depthStencilFormat;
     ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&opaquePipeDesc, IID_PPV_ARGS(&opaqueGfxPipe_)));
+}
+
+// =====================================================================================================================
+void TextureDemo::DrawRenderItems(ID3D12GraphicsCommandList * cmdList, const std::vector<RenderItem*>& items)
+{
+    UINT
 }
 
 void TextureDemo::OnMouseDown(WPARAM btnState, int x, int y)
