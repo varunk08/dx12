@@ -39,12 +39,32 @@ class TextureDemo : public BaseApp
 public:
     TextureDemo(HINSTANCE hInstance)
         :
-        BaseApp(hInstance)
-    {}
+        BaseApp(hInstance),
+        theta_(1.3f * XM_PI),
+        phi_(0.4f * XM_PI),
+        radius_(2.5f),
+        currentFrameIndex_(0)
+    {
+        projMatrix_ = MathHelper::Identity4x4();
+        viewMatrix_ = MathHelper::Identity4x4();
+        eyePos_ = { 0.0f, 0.0f, 0.0f };
+    }
 
+    virtual void OnResize() override;
     virtual void Update(const BaseTimer& timer) override;
     virtual void Draw(const BaseTimer& timer) override;
     bool Initialize() override;
+
+    virtual void OnMouseDown(WPARAM btnState, int x, int y) override;
+    virtual void OnMouseUp(WPARAM btnState, int x, int y) override;
+    virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
+
+    void OnKeyboardInput(const BaseTimer& timer);
+    void UpdateCamera(const BaseTimer& timer);
+    void AnimateMaterials(const BaseTimer& timer);
+    void UpdateObjectCBs(const BaseTimer& timer);
+    void UpdateMaterialCBs(const BaseTimer& timer);
+    void UpdateMainPassCBs(const BaseTimer& timer);
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
     void LoadTextures();
@@ -55,11 +75,13 @@ public:
     void BuildMaterials();
     void BuildRenderItems();
     void BuildFrameResources();
+    void BuildPipelines();
 
 private:
     ComPtr<ID3D12RootSignature> rootSignature_ = nullptr;
     ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_ = nullptr;
-    
+    ComPtr<ID3D12PipelineState> opaqueGfxPipe_ = nullptr;
+
     std::unordered_map<std::string, std::unique_ptr<Texture>> textures_;
     std::unordered_map<std::string, ComPtr<ID3DBlob>> shaders_;
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> geometries_;
@@ -69,11 +91,51 @@ private:
     std::vector<std::unique_ptr<RenderItem>> allItems_;
     std::vector<RenderItem*> opaqueItems_;
     std::vector<std::unique_ptr<FrameResource::Resources>> frameResources_;
+    FrameResource::Resources* currentFrameRes_ = nullptr;
+    FrameResource::PassConstants mainPassCB_;
+
+    XMFLOAT4X4 projMatrix_;
+    XMFLOAT4X4 viewMatrix_;
+    XMFLOAT3 eyePos_;
+
+    float theta_;
+    float phi_;
+    float radius_;
+    POINT lastMousePos_;
+
+    unsigned int currentFrameIndex_;
 };
 
-// ====================================================================================================================
+// =====================================================================================================================
+void TextureDemo::OnResize()
+{
+    BaseApp::OnResize();
+
+    XMMATRIX proj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+    XMStoreFloat4x4(&projMatrix_, proj);
+}
+
+// =====================================================================================================================
 void TextureDemo::Update(const BaseTimer& timer)
 {
+    OnKeyboardInput(timer);
+    UpdateCamera(timer);
+
+    currentFrameIndex_ = (currentFrameIndex_ + 1) % NumFrameResources;
+    currentFrameRes_ = frameResources_[currentFrameIndex_].get();
+
+    if ((currentFrameRes_->m_fence != 0) && (m_fence->GetCompletedValue() < currentFrameRes_->m_fence))
+    {
+        HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
+        ThrowIfFailed(m_fence->SetEventOnCompletion(currentFrameRes_->m_fence, eventHandle));
+        WaitForSingleObject(eventHandle, INFINITE);
+        CloseHandle(eventHandle);
+    }
+
+    AnimateMaterials(timer);
+    UpdateObjectCBs(timer);
+    UpdateMaterialCBs(timer);
+    UpdateMainPassCBs(timer);
 
 }
 
@@ -95,8 +157,18 @@ bool TextureDemo::Initialize()
         LoadTextures();
         BuildRootSignature();
         BuildDescriptorHeaps();
+        BuildShadersAndInputLayout();
+        BuildShapeGeometry();
         BuildMaterials();
         BuildRenderItems();
+        BuildFrameResources();
+        BuildPipelines();
+
+        ThrowIfFailed(m_commandList->Close());
+        ID3D12CommandList* cmdLists[] = { m_commandList.Get() };
+        m_commandQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
+
+        FlushCommandQueue();
     }
 
     return success;
@@ -107,7 +179,7 @@ void TextureDemo::LoadTextures()
 {
     auto woodCrateTex = std::make_unique<Texture>();
     woodCrateTex->name_ = "woodCrateTex";
-    woodCrateTex->filename_ = L"../../../projects/Textures/WoodCrate01.dds";
+    woodCrateTex->filename_ = L"..\\textures\\WoodCrate01.dds";
 
     ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_d3dDevice.Get(),
                   m_commandList.Get(),
@@ -178,8 +250,8 @@ void TextureDemo::BuildDescriptorHeaps()
 // ====================================================================================================================
 void TextureDemo::BuildShadersAndInputLayout()
 {
-    shaders_["standardVS"] = BaseUtil::CompileShader(L"shaders\\texureDemo.hlsl", nullptr, "VS", "vs_5_0");
-    shaders_["opaquePS"] = BaseUtil::CompileShader(L"shaders\\texureDemo.hlsl", nullptr, "PS", "ps_5_0");
+    shaders_["standardVS"] = BaseUtil::CompileShader(L"shaders\\textureDemo.hlsl", nullptr, "VS", "vs_5_0");
+    shaders_["opaquePS"] = BaseUtil::CompileShader(L"shaders\\textureDemo.hlsl", nullptr, "PS", "ps_5_0");
 
     inputLayout_ =
     {
@@ -225,7 +297,7 @@ void TextureDemo::BuildShapeGeometry()
 
     geo->vertexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(), m_commandList.Get(), vertices.data(), vbByteSize, geo->vertexBufferUploader);
     geo->indexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(), m_commandList.Get(), indices.data(), ibBytesSize, geo->indexBufferUploader);
-    
+
     geo->vertexByteStride = sizeof(Vertex);
     geo->vertexBufferByteSize = vbByteSize;
     geo->indexFormat = DXGI_FORMAT_R16_UINT;
@@ -274,10 +346,146 @@ void TextureDemo::BuildFrameResources()
     using namespace FrameResource;
     for (int i = 0; i < NumFrameResources; ++i)
     {
-        //frameResources_.push_back(std::make_unique<Resources);
+        frameResources_.push_back(std::make_unique<Resources>(m_d3dDevice.Get(), 1, static_cast<UINT>(allItems_.size()), static_cast<UINT>(materials_.size())));
     }
 }
 
+// =====================================================================================================================
+void TextureDemo::BuildPipelines()
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePipeDesc = {};
+    ZeroMemory(&opaquePipeDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    opaquePipeDesc.InputLayout = { inputLayout_.data(), static_cast<UINT>(inputLayout_.size()) };
+    opaquePipeDesc.pRootSignature = rootSignature_.Get();
+    opaquePipeDesc.VS = { reinterpret_cast<BYTE*>(shaders_["standardVS"]->GetBufferPointer()), shaders_["standardVS"]->GetBufferSize() };
+    opaquePipeDesc.PS = { reinterpret_cast<BYTE*>(shaders_["opaquePS"]->GetBufferPointer()), shaders_["opaquePS"]->GetBufferSize() };
+    opaquePipeDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    opaquePipeDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    opaquePipeDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    opaquePipeDesc.SampleMask = UINT_MAX;
+    opaquePipeDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    opaquePipeDesc.NumRenderTargets = 1;
+    opaquePipeDesc.RTVFormats[0] = m_backBufferFormat;
+    opaquePipeDesc.SampleDesc.Count = m_4xMsaaEn ? 4 : 1;
+    opaquePipeDesc.SampleDesc.Quality = m_4xMsaaEn ? m_4xMsaaQuality - 1 : 0;
+    opaquePipeDesc.DSVFormat = m_depthStencilFormat;
+    ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&opaquePipeDesc, IID_PPV_ARGS(&opaqueGfxPipe_)));
+}
+
+void TextureDemo::OnMouseDown(WPARAM btnState, int x, int y)
+{
+}
+
+void TextureDemo::OnMouseUp(WPARAM btnState, int x, int y)
+{
+}
+
+void TextureDemo::OnMouseMove(WPARAM btnState, int x, int y)
+{
+}
+
+void TextureDemo::OnKeyboardInput(const BaseTimer & timer)
+{
+}
+
+void TextureDemo::UpdateCamera(const BaseTimer & timer)
+{
+}
+
+void TextureDemo::AnimateMaterials(const BaseTimer & timer)
+{
+}
+
+// =====================================================================================================================
+void TextureDemo::UpdateObjectCBs(const BaseTimer & timer)
+{
+    using namespace FrameResource;
+
+    auto currObjCB = currentFrameRes_->m_objCb.get();
+    for (auto& e : allItems_)
+    {
+        if (e->numFramesDirty_ > 0)
+        {
+            XMMATRIX world = DirectX::XMLoadFloat4x4(&e->world_);
+            XMMATRIX texTransform = DirectX::XMLoadFloat4x4(&e->texTransform_);
+
+            ObjectConstants objConstants;
+            DirectX::XMStoreFloat4x4(&objConstants.m_world, XMMatrixTranspose(world));
+            DirectX::XMStoreFloat4x4(&objConstants.m_texTransform, XMMatrixTranspose(texTransform));
+
+            currObjCB->CopyData(e->objCbIndex_, objConstants);
+            e->numFramesDirty_--;
+        }
+    }
+}
+
+// =====================================================================================================================
+void TextureDemo::UpdateMaterialCBs(const BaseTimer & timer)
+{
+    using namespace FrameResource;
+
+    auto currMaterialCB = currentFrameRes_->m_matCb.get();
+    for (auto& e : materials_)
+    {
+        Material* pMat = e.second.get();
+        if (pMat->m_numFramesDirty > 0)
+        {
+            XMMATRIX matTransform = XMLoadFloat4x4(&pMat->m_matTransform);
+
+            MaterialConstants matConstants;
+            matConstants.diffuseAlbedo = pMat->m_diffuseAlbedo;
+            matConstants.fresnelR0 = pMat->m_fresnelR0;
+            matConstants.roughness = pMat->m_roughness;
+            XMStoreFloat4x4(&matConstants.matTransform, XMMatrixTranspose(matTransform));
+            currMaterialCB->CopyData(pMat->m_matCbIndex, matConstants);
+
+            pMat->m_numFramesDirty--;
+        }
+    }
+}
+
+// =====================================================================================================================
+void TextureDemo::UpdateMainPassCBs(const BaseTimer & timer)
+{
+    XMMATRIX view = XMLoadFloat4x4(&viewMatrix_);
+    XMMATRIX proj = XMLoadFloat4x4(&projMatrix_);
+
+    XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+    XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+    XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+
+    XMStoreFloat4x4(&mainPassCB_.view, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&mainPassCB_.proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&mainPassCB_.viewProj, XMMatrixTranspose(viewProj));
+    XMStoreFloat4x4(&mainPassCB_.invView, XMMatrixTranspose(invView));
+    XMStoreFloat4x4(&mainPassCB_.invProj, XMMatrixTranspose(invProj));
+    XMStoreFloat4x4(&mainPassCB_.invViewProj, XMMatrixTranspose(invViewProj));
+
+    mainPassCB_.eyePosW = eyePos_;
+    mainPassCB_.renderTargetSize = XMFLOAT2(static_cast<float>(m_clientWidth), static_cast<float>(m_clientHeight));
+    mainPassCB_.invRenderTargetSize = XMFLOAT2(1.0f / m_clientWidth, 1.0f / m_clientHeight);
+
+    // frustum
+    mainPassCB_.nearZ = 1.0f;
+    mainPassCB_.farZ = 1000.0f;
+
+    // time
+    mainPassCB_.totalTime = timer.TotalTimeInSecs();
+    mainPassCB_.deltaTime = timer.DeltaTimeInSecs();
+
+    // lights
+    mainPassCB_.ambientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+    mainPassCB_.lights[0].direction = { 0.57735f, -0.57735f, 0.57735f };
+    mainPassCB_.lights[0].strength = { 0.6f, 0.6f, 0.6f };
+    mainPassCB_.lights[1].direction = { -0.57735f, -0.57735f, 0.57735f };
+    mainPassCB_.lights[1].strength = { 0.3f, 0.3f, 0.3f };
+    mainPassCB_.lights[2].direction = { 0.0f, -0.707f, -0.707f };
+    mainPassCB_.lights[2].strength = { 0.15f, 0.15f, 0.15f };
+
+    auto currPassCB = currentFrameRes_->m_passCb.get();
+    currPassCB->CopyData(0, mainPassCB_);
+}
 
 // =====================================================================================================================
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> TextureDemo::GetStaticSamplers()
