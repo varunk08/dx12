@@ -5,6 +5,8 @@
 #include "BaseApp.h"
 
 using namespace std;
+using Microsoft::WRL::ComPtr;
+using namespace DirectX;
 
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
@@ -22,10 +24,13 @@ public:
     virtual void Draw(const BaseTimer& timer) override;
     bool Initialize() override;
 
+    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
     void LoadTextures();
     void BuildRootSignature();
 
+
 private:
+    ComPtr<ID3D12RootSignature> rootSignature_ = nullptr;
 };
 
 // ====================================================================================================================
@@ -83,7 +88,37 @@ void TextureDemo::BuildRootSignature()
     slotRootParameter[2].InitAsConstantBufferView(1);
     slotRootParameter[3].InitAsConstantBufferView(2);
 
-    
+    auto staticSamplers = GetStaticSamplers();
+
+    // a root signature consists of root parameters
+    // root parameters can be (descriptor tables, descriptor, root constant)
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter, static_cast<uint32_t>(staticSamplers.size()), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    ComPtr<ID3DBlob> serializedRootSig = nullptr;
+    ComPtr<ID3DBlob> errorBlob = nullptr;
+
+    HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA(static_cast<char*>(errorBlob->GetBufferPointer()));
+    }
+
+    ThrowIfFailed(hr);
+    ThrowIfFailed(m_d3dDevice->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(), IID_PPV_ARGS(rootSignature_.GetAddressOf())));
+}
+
+// ====================================================================================================================
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> TextureDemo::GetStaticSamplers()
+{
+    const CD3DX12_STATIC_SAMPLER_DESC pointWrap(0, D3D12_FILTER_MIN_MAG_MIP_POINT, D3D12_TEXTURE_ADDRESS_MODE_WRAP,D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP);
+    const CD3DX12_STATIC_SAMPLER_DESC pointClamp(1, D3D12_FILTER_MIN_MAG_MIP_POINT, D3D12_TEXTURE_ADDRESS_MODE_CLAMP,D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
+    const CD3DX12_STATIC_SAMPLER_DESC linearWrap(2, D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP);
+    const CD3DX12_STATIC_SAMPLER_DESC linearClamp(3, D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
+    const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(4, D3D12_FILTER_ANISOTROPIC, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP);
+    const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(5, D3D12_FILTER_ANISOTROPIC, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
+
+    return { pointWrap, pointClamp, linearWrap, linearClamp, anisotropicWrap, anisotropicClamp };
 }
 
 // ====================================================================================================================
