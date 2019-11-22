@@ -1,4 +1,5 @@
 #include <iostream>
+#include "DirectXColors.h"
 #include "windows.h"
 #include "BaseApp.h"
 #include "FrameResource.h"
@@ -142,7 +143,37 @@ void TextureDemo::Update(const BaseTimer& timer)
 // ====================================================================================================================
 void TextureDemo::Draw(const BaseTimer& timer)
 {
+    auto cmdAllocator = currentFrameRes_->m_cmdListAlloc;
 
+    // Reset the allocator and the command list.
+    ThrowIfFailed(cmdAllocator->Reset());
+    ThrowIfFailed(m_commandList->Reset(cmdAllocator.Get(), opaqueGfxPipe_.Get()));
+
+    // Reset the viewport
+    m_commandList->RSSetViewports(1, &m_screenViewport);
+    m_commandList->RSSetScissorRects(1, &m_scissorRect);
+
+    // Barrier transition ofcurrent back buffer from present image to render target
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+
+    // Perform operations on the render target image.
+    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::LightYellow, 0, nullptr);
+
+    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
+
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+
+    // Close command list and execute on command queue.
+    ThrowIfFailed(m_commandList->Close());
+    ID3D12CommandList* cmdLists[] = { m_commandList.Get() };
+    m_commandQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
+
+    // Swap chain buffer swap
+    ThrowIfFailed(m_swapChain->Present(0, 0));
+    m_currBackBuffer = (m_currBackBuffer + 1) % SwapChainBufferCount;
+
+    currentFrameRes_->m_fence = ++m_currentFence;
+    m_commandQueue->Signal(m_fence.Get(), m_currentFence);
 }
 
 // ====================================================================================================================
