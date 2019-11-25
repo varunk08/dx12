@@ -14,7 +14,7 @@ using namespace DirectX;
 
 const unsigned int NumFrameResources = 3;
 
-// ====================================================================================================================
+// =====================================================================================================================
 class RenderItem
 {
 public:
@@ -34,7 +34,7 @@ public:
     int baseVertexLocation_ = 0;
 };
 
-// ====================================================================================================================
+// =====================================================================================================================
 class TextureDemo : public BaseApp
 {
 public:
@@ -171,7 +171,7 @@ void TextureDemo::Draw(const BaseTimer& timer)
     auto passCB = currentFrameRes_->m_passCb->Resource();
     m_commandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
-
+    DrawRenderItems(m_commandList.Get(), opaqueItems_);
 
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
 
@@ -217,7 +217,7 @@ bool TextureDemo::Initialize()
     return success;
 }
 
-// ====================================================================================================================
+// =====================================================================================================================
 void TextureDemo::LoadTextures()
 {
     auto woodCrateTex = std::make_unique<Texture>();
@@ -233,10 +233,10 @@ void TextureDemo::LoadTextures()
     textures_[woodCrateTex->name_] = std::move(woodCrateTex);
 }
 
-// ====================================================================================================================
+// =====================================================================================================================
 void TextureDemo::BuildRootSignature()
 {
-    auto texTable = CD3DX12_DESCRIPTOR_RANGE();
+    CD3DX12_DESCRIPTOR_RANGE texTable;
     texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
 
     CD3DX12_ROOT_PARAMETER slotRootParameter[4];
@@ -290,7 +290,7 @@ void TextureDemo::BuildDescriptorHeaps()
     m_d3dDevice->CreateShaderResourceView(woodCrateTex.Get(), &srvDesc, hDescriptor);
 }
 
-// ====================================================================================================================
+// =====================================================================================================================
 void TextureDemo::BuildShadersAndInputLayout()
 {
     shaders_["standardVS"] = BaseUtil::CompileShader(L"shaders\\textureDemo.hlsl", nullptr, "VS", "vs_5_0");
@@ -304,7 +304,7 @@ void TextureDemo::BuildShadersAndInputLayout()
     };
 }
 
-// ====================================================================================================================
+// =====================================================================================================================
 void TextureDemo::BuildShapeGeometry()
 {
     GeometryGenerator geoGen;
@@ -418,29 +418,70 @@ void TextureDemo::BuildPipelines()
 // =====================================================================================================================
 void TextureDemo::DrawRenderItems(ID3D12GraphicsCommandList * cmdList, const std::vector<RenderItem*>& items)
 {
-    UINT
+    UINT objCBByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::ObjectConstants));
+    UINT matCBByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::MaterialConstants));
+
+    auto objectCB = currentFrameRes_->m_objCb->Resource();
+    auto matCB = currentFrameRes_->m_matCb->Resource();
+
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        auto ri = items[i];
+
+        cmdList->IASetVertexBuffers(0, 1, &ri->geo_->VertexBufferView());
+        cmdList->IASetIndexBuffer(&ri->geo_->IndexBufferView());
+        cmdList->IASetPrimitiveTopology(ri->primitiveType_);
+
+        CD3DX12_GPU_DESCRIPTOR_HANDLE tex(srvDescriptorHeap_->GetGPUDescriptorHandleForHeapStart());
+        tex.Offset(ri->mat_->m_diffuseSrvHeapIndex, m_cbvSrvUavDescriptorSize);
+
+        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->objCbIndex_ * objCBByteSize;
+        D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->mat_->m_matCbIndex * matCBByteSize;
+
+        cmdList->SetGraphicsRootDescriptorTable(0, tex);
+        cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+        cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+        cmdList->DrawIndexedInstanced(ri->indexCount_, 1, ri->startIndexLocation_, ri->baseVertexLocation_, 0);
+    }
 }
 
+// =====================================================================================================================
 void TextureDemo::OnMouseDown(WPARAM btnState, int x, int y)
 {
 }
 
+// =====================================================================================================================
 void TextureDemo::OnMouseUp(WPARAM btnState, int x, int y)
 {
 }
 
+// =====================================================================================================================
 void TextureDemo::OnMouseMove(WPARAM btnState, int x, int y)
 {
 }
 
+// =====================================================================================================================
 void TextureDemo::OnKeyboardInput(const BaseTimer & timer)
 {
 }
 
+// =====================================================================================================================
 void TextureDemo::UpdateCamera(const BaseTimer & timer)
 {
+    eyePos_.x = radius_ * sinf(phi_) * cosf(theta_);
+    eyePos_.y = radius_ * sinf(phi_) * sinf(theta_);
+    eyePos_.z = radius_ * cosf(theta_);
+
+    XMVECTOR pos = XMVectorSet(eyePos_.x, eyePos_.y, eyePos_.z, 1.0f);
+    XMVECTOR target = XMVectorZero();
+    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+    XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+    XMStoreFloat4x4(&viewMatrix_, view);
 }
 
+// =====================================================================================================================
 void TextureDemo::AnimateMaterials(const BaseTimer & timer)
 {
 }
@@ -549,7 +590,7 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> TextureDemo::GetStaticSamplers(
     return { pointWrap, pointClamp, linearWrap, linearClamp, anisotropicWrap, anisotropicClamp };
 }
 
-// ====================================================================================================================
+// =====================================================================================================================
 // Write the win main func here
 int WINAPI WinMain(HINSTANCE hInstance,
                    HINSTANCE hPrevInstance,
