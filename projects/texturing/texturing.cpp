@@ -156,7 +156,10 @@ void TextureDemo::Draw(const BaseTimer& timer)
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
     // Barrier transition ofcurrent back buffer from present image to render target
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+    m_commandList->ResourceBarrier(1,
+				   &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+									 D3D12_RESOURCE_STATE_PRESENT,
+									 D3D12_RESOURCE_STATE_RENDER_TARGET));
 
     // Perform operations on the render target image.
     m_commandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::LightYellow, 0, nullptr);
@@ -173,7 +176,10 @@ void TextureDemo::Draw(const BaseTimer& timer)
 
     DrawRenderItems(m_commandList.Get(), opaqueItems_);
 
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+    m_commandList->ResourceBarrier(1,
+				   &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+									 D3D12_RESOURCE_STATE_RENDER_TARGET,
+									 D3D12_RESOURCE_STATE_PRESENT));
 
     // Close command list and execute on command queue.
     ThrowIfFailed(m_commandList->Close());
@@ -250,12 +256,19 @@ void TextureDemo::BuildRootSignature()
 
     // a root signature consists of root parameters
     // root parameters can be (descriptor tables, descriptor, root constant)
-    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter, static_cast<uint32_t>(staticSamplers.size()), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4,
+					    slotRootParameter,
+					    static_cast<uint32_t>(staticSamplers.size()),
+					    staticSamplers.data(),
+					    D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     ComPtr<ID3DBlob> serializedRootSig = nullptr;
     ComPtr<ID3DBlob> errorBlob = nullptr;
 
-    HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+    HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc,
+					     D3D_ROOT_SIGNATURE_VERSION_1,
+					     serializedRootSig.GetAddressOf(),
+					     errorBlob.GetAddressOf());
 
     if (errorBlob != nullptr)
     {
@@ -263,7 +276,11 @@ void TextureDemo::BuildRootSignature()
     }
 
     ThrowIfFailed(hr);
-    ThrowIfFailed(m_d3dDevice->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(), IID_PPV_ARGS(rootSignature_.GetAddressOf())));
+
+    ThrowIfFailed(m_d3dDevice->CreateRootSignature(0,
+						   serializedRootSig->GetBufferPointer(),
+						   serializedRootSig->GetBufferSize(),
+						   IID_PPV_ARGS(rootSignature_.GetAddressOf())));
 }
 
 // ====================================================================================================================
@@ -315,18 +332,18 @@ void TextureDemo::BuildShapeGeometry()
     boxSubmesh.startIndexLocation = 0;
     boxSubmesh.baseVertexLocation = 0;
 
-    std::vector<Vertex> vertices(box.m_vertices.size());
+    std::vector<FrameResource::Vertex> vertices(box.m_vertices.size());
 
     for (uint32_t i = 0; i < box.m_vertices.size(); ++i)
     {
-        vertices[i].m_position = box.m_vertices[i].m_position;
-        vertices[i].m_normal = box.m_vertices[i].m_normal;
-        vertices[i].m_texC = box.m_vertices[i].m_texC;
+        vertices[i].pos    = box.m_vertices[i].m_position;
+        vertices[i].normal = box.m_vertices[i].m_normal;
+        vertices[i].texC   = box.m_vertices[i].m_texC;
     }
 
     std::vector<std::uint16_t> indices = box.GetIndices16();
 
-    const UINT vbByteSize = static_cast<UINT>(vertices.size() * sizeof(Vertex));
+    const UINT vbByteSize = static_cast<UINT>(vertices.size() * sizeof(FrameResource::Vertex));
     const UINT ibBytesSize = static_cast<UINT>(indices.size() * sizeof(std::uint16_t));
 
     auto geo = std::make_unique<MeshGeometry>();
@@ -338,10 +355,19 @@ void TextureDemo::BuildShapeGeometry()
     ThrowIfFailed(D3DCreateBlob(ibBytesSize, &geo->indexBufferCPU));
     CopyMemory(geo->indexBufferCPU->GetBufferPointer(), indices.data(), ibBytesSize);
 
-    geo->vertexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(), m_commandList.Get(), vertices.data(), vbByteSize, geo->vertexBufferUploader);
-    geo->indexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(), m_commandList.Get(), indices.data(), ibBytesSize, geo->indexBufferUploader);
+    geo->vertexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+							 m_commandList.Get(),
+							 vertices.data(),
+							 vbByteSize,
+							 geo->vertexBufferUploader);
 
-    geo->vertexByteStride = sizeof(Vertex);
+    geo->indexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+							m_commandList.Get(),
+							indices.data(),
+							ibBytesSize,
+							geo->indexBufferUploader);
+
+    geo->vertexByteStride = sizeof(FrameResource::Vertex);
     geo->vertexBufferByteSize = vbByteSize;
     geo->indexFormat = DXGI_FORMAT_R16_UINT;
     geo->indexBufferByteSize = ibBytesSize;
@@ -580,12 +606,38 @@ void TextureDemo::UpdateMainPassCBs(const BaseTimer & timer)
 // =====================================================================================================================
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> TextureDemo::GetStaticSamplers()
 {
-    const CD3DX12_STATIC_SAMPLER_DESC pointWrap(0, D3D12_FILTER_MIN_MAG_MIP_POINT, D3D12_TEXTURE_ADDRESS_MODE_WRAP,D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP);
-    const CD3DX12_STATIC_SAMPLER_DESC pointClamp(1, D3D12_FILTER_MIN_MAG_MIP_POINT, D3D12_TEXTURE_ADDRESS_MODE_CLAMP,D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
-    const CD3DX12_STATIC_SAMPLER_DESC linearWrap(2, D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP);
-    const CD3DX12_STATIC_SAMPLER_DESC linearClamp(3, D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
-    const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(4, D3D12_FILTER_ANISOTROPIC, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP);
-    const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(5, D3D12_FILTER_ANISOTROPIC, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
+    const CD3DX12_STATIC_SAMPLER_DESC pointWrap(0,
+						D3D12_FILTER_MIN_MAG_MIP_POINT,
+						D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+						D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+						D3D12_TEXTURE_ADDRESS_MODE_WRAP);
+    const CD3DX12_STATIC_SAMPLER_DESC pointClamp(1,
+						 D3D12_FILTER_MIN_MAG_MIP_POINT,
+						 D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+						 D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+						 D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
+
+    const CD3DX12_STATIC_SAMPLER_DESC linearWrap(2,
+						 D3D12_FILTER_MIN_MAG_MIP_LINEAR,
+						 D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+						 D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+						 D3D12_TEXTURE_ADDRESS_MODE_WRAP);
+    const CD3DX12_STATIC_SAMPLER_DESC linearClamp(3,
+						  D3D12_FILTER_MIN_MAG_MIP_LINEAR,
+						  D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+						  D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+						  D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
+
+    const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(4,
+						      D3D12_FILTER_ANISOTROPIC,
+						      D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+						      D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+						      D3D12_TEXTURE_ADDRESS_MODE_WRAP);
+    const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(5,
+						       D3D12_FILTER_ANISOTROPIC,
+						       D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+						       D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+						       D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
 
     return { pointWrap, pointClamp, linearWrap, linearClamp, anisotropicWrap, anisotropicClamp };
 }
