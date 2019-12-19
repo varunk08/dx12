@@ -475,16 +475,43 @@ void TextureDemo::DrawRenderItems(ID3D12GraphicsCommandList * cmdList, const std
 // =====================================================================================================================
 void TextureDemo::OnMouseDown(WPARAM btnState, int x, int y)
 {
+    lastMousePos_.x = x;
+    lastMousePos_.y = y;
+
+    SetCapture(mhMainWnd);
 }
 
 // =====================================================================================================================
 void TextureDemo::OnMouseUp(WPARAM btnState, int x, int y)
 {
+    ReleaseCapture();
 }
 
 // =====================================================================================================================
 void TextureDemo::OnMouseMove(WPARAM btnState, int x, int y)
 {
+    if ((btnState & MK_LBUTTON) != 0)
+    {
+      float dx = XMConvertToRadians(0.25f * static_cast<float>(x - lastMousePos_.x));
+      float dy = XMConvertToRadians(0.25f * static_cast<float>(y - lastMousePos_.y));
+
+      theta_ += dx;
+      phi_   += dy;
+
+      phi_ = MathHelper::Clamp(phi_, 0.1f, MathHelper::Pi - 0.1f);
+    }
+    else if ((btnState & MK_RBUTTON) != 0)
+    {
+      float dx = 0.05f * static_cast<float>(x - lastMousePos_.x);
+      float dy = 0.05f * static_cast<float>(y - lastMousePos_.y);
+
+      radius_ += (dx - dy);
+
+      radius_ = MathHelper::Clamp(radius_, 5.0f, 150.0f);
+    }
+
+    lastMousePos_.x = x;
+    lastMousePos_.y = y;
 }
 
 // =====================================================================================================================
@@ -495,9 +522,10 @@ void TextureDemo::OnKeyboardInput(const BaseTimer & timer)
 // =====================================================================================================================
 void TextureDemo::UpdateCamera(const BaseTimer & timer)
 {
+    // Convert spherical to Cartesian Coordinates
     eyePos_.x = radius_ * sinf(phi_) * cosf(theta_);
-    eyePos_.y = radius_ * sinf(phi_) * sinf(theta_);
-    eyePos_.z = radius_ * cosf(theta_);
+    eyePos_.y = radius_ * cosf(phi_);
+    eyePos_.z = radius_ * sinf(phi_) * sinf(theta_);
 
     XMVECTOR pos = XMVectorSet(eyePos_.x, eyePos_.y, eyePos_.z, 1.0f);
     XMVECTOR target = XMVectorZero();
@@ -566,9 +594,9 @@ void TextureDemo::UpdateMainPassCBs(const BaseTimer & timer)
     XMMATRIX view = XMLoadFloat4x4(&viewMatrix_);
     XMMATRIX proj = XMLoadFloat4x4(&projMatrix_);
 
-    XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-    XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
-    XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+    XMMATRIX viewProj    = XMMatrixMultiply(view, proj);
+    XMMATRIX invView     = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+    XMMATRIX invProj     = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
     XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
 
     XMStoreFloat4x4(&mainPassCB_.view, XMMatrixTranspose(view));
