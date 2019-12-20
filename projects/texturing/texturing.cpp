@@ -13,6 +13,11 @@ using namespace DirectX;
 #pragma comment(lib, "D3D12.lib")
 
 const unsigned int NumFrameResources = 3;
+enum TexturedShapes
+  {
+   Globe = 0,
+   Crate
+  };
 
 // =====================================================================================================================
 class RenderItem
@@ -231,10 +236,10 @@ void TextureDemo::LoadTextures()
     woodCrateTex->filename_ = L"..\\textures\\WoodCrate01.dds";
 
     ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_d3dDevice.Get(),
-                  m_commandList.Get(),
-                  woodCrateTex->filename_.c_str(),
-                  woodCrateTex->resource_,
-                  woodCrateTex->uploadHeap_));
+                                                      m_commandList.Get(),
+                                                      woodCrateTex->filename_.c_str(),
+                                                      woodCrateTex->resource_,
+                                                      woodCrateTex->uploadHeap_));
 
     textures_[woodCrateTex->name_] = std::move(woodCrateTex);
 }
@@ -497,7 +502,6 @@ void TextureDemo::OnMouseMove(WPARAM btnState, int x, int y)
 
       theta_ += dx;
       phi_   += dy;
-
       phi_ = MathHelper::Clamp(phi_, 0.1f, MathHelper::Pi - 0.1f);
     }
     else if ((btnState & MK_RBUTTON) != 0)
