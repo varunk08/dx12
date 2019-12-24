@@ -15,8 +15,8 @@ using namespace DirectX;
 const unsigned int NumFrameResources = 3;
 enum TexturedShapes
   {
-   Globe = 0,
-   Crate
+   GLOBE = 0,
+   CRATE = 1
   };
 
 // =====================================================================================================================
@@ -302,12 +302,12 @@ void TextureDemo::BuildDescriptorHeaps()
     auto woodCrateTex = textures_["woodCrateTex"]->resource_;
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc.Format = woodCrateTex->GetDesc().Format;
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MostDetailedMip = 0;
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; // swizzling the RGBA components.
+    srvDesc.Format = woodCrateTex->GetDesc().Format; // the DXGI_FORMAT that the GPU will interpret this as.
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; // whether the resource is a 2D, 3D res etc.
+    srvDesc.Texture2D.MostDetailedMip = 0; // 0 to miplevels - 1
     srvDesc.Texture2D.MipLevels = woodCrateTex->GetDesc().MipLevels;
-    srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+    srvDesc.Texture2D.ResourceMinLODClamp = 0.0f; // minimum mipmap level that can be accessed.
 
     m_d3dDevice->CreateShaderResourceView(woodCrateTex.Get(), &srvDesc, hDescriptor);
 }
@@ -697,3 +697,12 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 
 
+/* Options for rendering multiple textured scenes:
+(lesser evil?)
+1. separate classes for each demo, with own resources in GPU mem, then switch to current app
+(time lag when uploading resources on app switch)
+2. upload all resources for all demos, then index into the resources for that which is visible
+(works well for small number of demoes, resource issues when # of demoes is large) - lesser evil!
+3. render all demoes in the same app, change viewport/ hide other views (bad, needless rendering)
+
+ */
