@@ -13,11 +13,6 @@ using namespace DirectX;
 #pragma comment(lib, "D3D12.lib")
 
 const unsigned int NumFrameResources = 3;
-enum TexturedShapes
-  {
-   Globe = 0,
-   Crate
-  };
 
 // =====================================================================================================================
 class RenderItem
