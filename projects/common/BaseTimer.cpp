@@ -22,11 +22,11 @@ float BaseTimer::TotalTimeInSecs() const
 
     if (m_stopped)
     {
-        totalTime = ((m_stopTime - m_pausedTime) - m_baseTime) * m_secondsPerCount;
+        totalTime = static_cast<float>(((m_stopTime - m_pausedTime) - m_baseTime) * m_secondsPerCount);
     }
     else
     {
-        totalTime = ((m_currTime - m_pausedTime) - m_baseTime) * m_secondsPerCount;
+        totalTime = static_cast<float>(((m_currTime - m_pausedTime) - m_baseTime) * m_secondsPerCount);
     }
 
     return totalTime;
