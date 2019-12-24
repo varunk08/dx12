@@ -24,6 +24,7 @@ set (PROJECTS
      draw_box
      shapes
      shapes_shaded
-	 texturing)
+	 texturing
+     blending)
 
 buildAllProjects()
