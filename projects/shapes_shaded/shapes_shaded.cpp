@@ -667,6 +667,7 @@ void ShapesDemo::BuildPsos()
     opaquePsoDesc.SampleDesc.Count         = m_4xMsaaEn ? 4 : 1;
     opaquePsoDesc.SampleDesc.Quality       = m_4xMsaaEn ? (m_4xMsaaQuality - 1) : 0;
     opaquePsoDesc.DSVFormat                = m_depthStencilFormat;
+
     ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&m_psos["opaque"])));
 }
 

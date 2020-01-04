@@ -1,16 +1,19 @@
 #include <iostream>
 #include <vector>
+#include <unordered_map>
 #include "DirectXColors.h"
 #include "windows.h"
 #include "BaseApp.h"
+#include "../common/BaseUtil.h"
+#include "../common/MathHelper.h"
 
 using namespace std;
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
-struct FrameResource
+struct ObjContants
 {
-  
+  DirectX::XMFLOAT4X4 WorldViewProj = MathHelper::Identity4x4();
 };
 
 // Represents all parameters of a vertex in DirectX compatible formats.
@@ -120,6 +123,14 @@ private:
   virtual void OnKeyDown(WPARAM wparam) override {}
 
   void BuildTerrainGeometry();
+  void BuildInputLayout();
+  void BuildShaders();
+  void BuildPipelines();
+  
+  std::vector<D3D12_INPUT_ELEMENT_DESC> inputLayout_;
+  std::unordered_map<std::string, ComPtr<ID3DBlob>> shaders_;
+  ComPtr<ID3D12RootSignature> rootSign_ = nullptr;
+  std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> pipelines_;
 };
 
 // Demo constructor.
@@ -148,6 +159,8 @@ bool BlendApp::Initialize()
     m_cbvSrvUavDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     BuildTerrainGeometry();
+    BuildInputLayout();
+    BuildShaders();
     
     // Submit the initialization commands.
     ThrowIfFailed(m_commandList->Close());
@@ -244,6 +257,24 @@ void BlendApp::BuildTerrainGeometry()
   
 }
 
+// Builds input layout.
+void BlendApp::BuildInputLayout()
+{
+  inputLayout_ =
+    {
+     {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+     {"COLOR",    0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+     {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+}
+
+// Builds shaders needed for this demo.
+void BlendApp::BuildShaders()
+{
+  shaders_["std_vs"] = BaseUtil::CompileShader(L"shaders\\blending.hlsl", nullptr, "VS", "vs_5_1");
+  shaders_["std_ps"] = BaseUtil::CompileShader(L"shaders\\blending.hlsl", nullptr, "PS", "ps_5_1");
+}
+
 // Windows main function to setup and go into Run() loop.
 int WINAPI WinMain(HINSTANCE hInstance,
                    HINSTANCE hPrevInstance,
@@ -322,6 +353,36 @@ MeshData GeometryGenerator::CreateGrid(float width, float depth, uint32_t m, uin
   return meshData;
 }
 
+// Builds the pipelines required for this demo.
+void BlendApp::BuildPipelines()
+{
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC std_gfx_pipe = {};
+
+  std_gfx_pipe.InputLayout    = { inputLayout_.data(), static_cast<UINT>(inputLayout_.size()) };
+  std_gfx_pipe.pRootSignature = rootSign_.Get();
+  std_gfx_pipe.VS             = {
+                                 reinterpret_cast<BYTE*>(shaders_["std_vs"]->GetBufferPointer()),
+                                 shaders_["std_vs"]->GetBufferSize()
+  };
+  std_gfx_pipe.PS             = {
+                                 reinterpret_cast<BYTE*>(shaders_["std_ps"]->GetBufferPointer()),
+                                 shaders_["std_ps"]->GetBufferSize()
+  };
+  std_gfx_pipe.RasterizerState         = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+  // std_gfx_pipe.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+  std_gfx_pipe.BlendState              = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+  std_gfx_pipe.DepthStencilState       = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+  std_gfx_pipe.SampleMask              = UINT_MAX;
+  std_gfx_pipe.PrimitiveTopologyType   = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  std_gfx_pipe.NumRenderTargets        = 1;
+  std_gfx_pipe.RTVFormats[0]           = m_backBufferFormat;
+  std_gfx_pipe.SampleDesc.Count        = m_4xMsaaEn ? 4 : 1;
+  std_gfx_pipe.SampleDesc.Quality      = m_4xMsaaEn ? (m_4xMsaaQuality - 1) : 0;
+  std_gfx_pipe.DSVFormat               = m_depthStencilFormat;
+
+  ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&std_gfx_pipe, IID_PPV_ARGS(&pipelines_["std_gfx_pipe"])));
+}
+
 /**
 
 Blending demo agenda:
@@ -329,8 +390,15 @@ Blending demo agenda:
 :- create render target and clear to color, buffers created by BaseApp
 :- single fence for proper wait until reset
 - Draw a single grid with mouse movements
-  - create pipeline with shaders
-  - create geometry
+  :- generate mesh for grid.
+  :- create pipeline
+  :- write vertex and pixel shaders
+  - create descriptors
+  - upload vertex/index buffers
+  - upload constant buffers
+  - create root signature
+  - load texture
+  - write drawing commands
 - Frame resources, for rendering one full frame
 - triple buffering
 - Draw a textured crate
