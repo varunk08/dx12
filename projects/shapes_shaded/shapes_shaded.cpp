@@ -600,6 +600,7 @@ void ShapesDemo::BuildConstBufferViews()
     UINT objCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::ObjectConstants));
     UINT objCount      = (UINT) m_allRenderItems.size();
 
+    // Create const buffers for each object that is going to be rendered.
     for (int frameIndex = 0; frameIndex < NumFrameResources; ++frameIndex)
     {
         auto objectCb = m_frameResources[frameIndex]->m_objCb->Resource();
@@ -622,6 +623,7 @@ void ShapesDemo::BuildConstBufferViews()
 
     UINT passCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::PassConstants));
 
+    // Create const buffers for each frame resource for view proj matrices etc.
     for (int frameIndex = 0; frameIndex < NumFrameResources; ++frameIndex)
     {
         auto passCb = m_frameResources[frameIndex]->m_passCb->Resource();
@@ -780,13 +782,13 @@ void ShapesDemo::UpdateMainPassCB(const BaseTimer& timer)
     m_mainPassCB.deltaTime           = timer.DeltaTimeInSecs();
 
     m_mainPassCB.ambientLight        = { 0.25f, 0.25f, 0.35f, 1.0f };
-    
+
     m_mainPassCB.lights[0].direction = { 0.57735f, -0.57735f, 0.57735f };
     m_mainPassCB.lights[0].strength  = { 0.6f, 0.6f, 0.6f };
 
     m_mainPassCB.lights[1].direction = { -0.57735f, -0.57735f, 0.57735f };
     m_mainPassCB.lights[1].strength  = { 0.3f, 0.3f, 0.3f };
-    
+
     m_mainPassCB.lights[2].direction = { 0.0f, -0.707f, -0.707f };
     m_mainPassCB.lights[2].strength  = { 0.15f, 0.15f, 0.15f };
 

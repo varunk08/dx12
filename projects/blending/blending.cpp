@@ -6,12 +6,14 @@
 #include "BaseApp.h"
 #include "../common/BaseUtil.h"
 #include "../common/MathHelper.h"
+#include "../common/UploadBuffer.h"
 
 using namespace std;
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
-struct ObjContants
+// This will be referenced by the shader as a const buffer.
+struct PassConstants
 {
   DirectX::XMFLOAT4X4 WorldViewProj = MathHelper::Identity4x4();
 };
@@ -126,11 +128,15 @@ private:
   void BuildInputLayout();
   void BuildShaders();
   void BuildPipelines();
+  void BuildDescriptorHeaps();
+  void BuildConstBufferViews();
   
-  std::vector<D3D12_INPUT_ELEMENT_DESC> inputLayout_;
-  std::unordered_map<std::string, ComPtr<ID3DBlob>> shaders_;
-  ComPtr<ID3D12RootSignature> rootSign_ = nullptr;
+  std::vector<D3D12_INPUT_ELEMENT_DESC>                        inputLayout_;
+  std::unordered_map<std::string, ComPtr<ID3DBlob>>            shaders_;
+  ComPtr<ID3D12RootSignature>                                  rootSign_ = nullptr;
   std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> pipelines_;
+  ComPtr<ID3D12DescriptorHeap>                                 cbvHeap_;
+  std::unique_ptr<UploadBuffer<PassConstants>>                 passCb_ = nullptr;     // Stores the MVP matrices etc.
 };
 
 // Demo constructor.
@@ -161,7 +167,9 @@ bool BlendApp::Initialize()
     BuildTerrainGeometry();
     BuildInputLayout();
     BuildShaders();
-    
+    BuildDescriptorHeaps();
+    BuildConstBufferViews();
+  
     // Submit the initialization commands.
     ThrowIfFailed(m_commandList->Close());
     ID3D12CommandList* cmdLists[] =  { m_commandList.Get() };
@@ -178,6 +186,10 @@ bool BlendApp::Initialize()
 // Updates resource state for a frame.
 void BlendApp::Update(const BaseTimer& timer)
 {
+  // Update the const buffer which contain the world view proj matrix per frame
+  // This should be based on mouse movement.
+  
+  
   if ((m_currentFence != 0) && (m_fence->GetCompletedValue() < m_currentFence)) {
       HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
       ThrowIfFailed(m_fence->SetEventOnCompletion(m_currentFence, eventHandle));
@@ -383,6 +395,39 @@ void BlendApp::BuildPipelines()
   ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&std_gfx_pipe, IID_PPV_ARGS(&pipelines_["std_gfx_pipe"])));
 }
 
+// Creates descriptor heaps for the resources used by this demo's pipelines.
+void BlendApp::BuildDescriptorHeaps()
+{
+  // Create a single const-buf-view heap for the world view proj matrix for the simple case.
+  D3D12_DESCRIPTOR_HEAP_DESC cbv_heap_desc;
+  cbv_heap_desc.NumDescriptors = 1;
+  cbv_heap_desc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+  cbv_heap_desc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+  cbv_heap_desc.NodeMask       = 0;
+
+  ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbv_heap_desc, IID_PPV_ARGS(&cbvHeap_)));
+}
+
+// Creates a const buffer and also bBuilds the const buffer views for the world view projection matrix used for this demo
+void BlendApp::BuildConstBufferViews()
+{
+  passCb_ = std::make_unique<UploadBuffer<PassConstants>>(m_d3dDevice.Get(),
+                                                          1,      // Element count.
+                                                          true);  // Is a const buffer?
+
+  auto cb_address  = passCb_->Resource()->GetGPUVirtualAddress();
+  auto heap_handle = CD3DX12_CPU_DESCRIPTOR_HANDLE(cbvHeap_->GetCPUDescriptorHandleForHeapStart());
+
+  D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc = {};
+  cbv_desc.BufferLocation = cb_address;
+  cbv_desc.SizeInBytes    = BaseUtil::CalcConstantBufferByteSize(sizeof(PassConstants));
+
+  m_d3dDevice->CreateConstantBufferView(&cbv_desc, heap_handle);
+}
+
+
+
+
 /**
 
 Blending demo agenda:
@@ -393,7 +438,8 @@ Blending demo agenda:
   :- generate mesh for grid.
   :- create pipeline
   :- write vertex and pixel shaders
-  - create descriptors
+  :- create descriptors
+  - create const buffer view for the world view proj matrix
   - upload vertex/index buffers
   - upload constant buffers
   - create root signature
