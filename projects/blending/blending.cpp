@@ -15,7 +15,7 @@ using namespace DirectX;
 // This will be referenced by the shader as a const buffer.
 struct PassConstants
 {
-  DirectX::XMFLOAT4X4 WorldViewProj = MathHelper::Identity4x4();
+  DirectX::XMFLOAT4X4 ViewProj = MathHelper::Identity4x4();
 };
 
 // Represents all parameters of a vertex in DirectX compatible formats.
@@ -116,8 +116,9 @@ public:
   bool Initialize() override;
 
 private:
-  virtual void Update(const BaseTimer& timer) override;
-  virtual void Draw(const BaseTimer& timer) override;
+  void OnResize() override;
+  void Update(const BaseTimer& timer) override;
+  void Draw(const BaseTimer& timer) override;
 
   virtual void OnMouseDown(WPARAM btnState, int x, int y) override { }
   virtual void OnMouseUp(WPARAM btnState, int x, int y) override { }
@@ -137,6 +138,11 @@ private:
   std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> pipelines_;
   ComPtr<ID3D12DescriptorHeap>                                 cbvHeap_;
   std::unique_ptr<UploadBuffer<PassConstants>>                 passCb_ = nullptr;     // Stores the MVP matrices etc.
+
+  // Matrices
+  XMFLOAT4X4 view_ = MathHelper::Identity4x4();
+  XMFLOAT4X4 proj_ = MathHelper::Identity4x4();
+
 };
 
 // Demo constructor.
@@ -186,9 +192,26 @@ bool BlendApp::Initialize()
 // Updates resource state for a frame.
 void BlendApp::Update(const BaseTimer& timer)
 {
-  // Update the const buffer which contain the world view proj matrix per frame
-  // This should be based on mouse movement.
+  // Update view matrix
+  float phi = 0.2f * XM_PI;
+  float theta = 1.5f * XM_PI;
+  float radius =  15.0f;
   
+  XMFLOAT3 eye_pos = XMFLOAT3(radius * sinf(phi) * cosf(theta),
+                              radius * cosf(phi),
+                              radius * sinf(phi) * sinf(theta));
+  
+  XMVECTOR pos = XMVectorSet(eye_pos.x, eye_pos.y, eye_pos.z, 1.0f);
+  XMVECTOR target = XMVectorZero();
+  XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+  
+  XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+  XMStoreFloat4x4(&view_, view);
+
+  XMMATRIX view_proj = XMMatrixMultiply(XMLoadFloat4x4(&view_), XMLoadFloat4x4(&proj_));
+  PassConstants pass_const = {};
+  XMStoreFloat4x4(&pass_const.ViewProj, XMMatrixTranspose(view_proj));
+  passCb_->CopyData(0, pass_const);
   
   if ((m_currentFence != 0) && (m_fence->GetCompletedValue() < m_currentFence)) {
       HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
@@ -196,6 +219,17 @@ void BlendApp::Update(const BaseTimer& timer)
       WaitForSingleObject(eventHandle, INFINITE);
       CloseHandle(eventHandle);
   }
+}
+
+// Must update the projection matrix on resizing.
+void BlendApp::OnResize()
+{
+  // Base app updates swap chain buffers, RT, DS buffer sizes, viewport and scissor rects etc.
+  BaseApp::OnResize();
+
+  // Also update this demo's projection matrix.
+  XMMATRIX p = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+  XMStoreFloat4x4(&proj_, p);
 }
 
 // Writes draw commands for a frame.
