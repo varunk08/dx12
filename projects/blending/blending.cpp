@@ -42,7 +42,7 @@ struct DxVertex
     tangentU_(tx, ty, tz),
     texC_(u, v)
   { }
-  
+
   DirectX::XMFLOAT3 position_;
   DirectX::XMFLOAT3 normal_;
   DirectX::XMFLOAT3 tangentU_;
@@ -84,11 +84,11 @@ struct MeshData
 
     return indices16_;
   }
-  
+
   std::vector<DxVertex> vertices_;
   std::vector<uint32_t> indices32_;
 
-private:  
+private:
   std::vector<uint16_t> indices16_;
 };
 
@@ -98,10 +98,10 @@ class GeometryGenerator
 public:
   GeometryGenerator() {}
   MeshData CreateGrid(float width, float depth, uint32_t m, uint32_t n);
-  
+
 private:
 };
-  
+
 // Current demo class to handle user input and to setup demo-specific resource and commands.
 class BlendApp : public BaseApp
 {
@@ -132,7 +132,7 @@ private:
   void BuildPipelines();
   void BuildDescriptorHeaps();
   void BuildConstBufferViews();
-  
+
   std::vector<D3D12_INPUT_ELEMENT_DESC>                        inputLayout_;
   std::unordered_map<std::string, ComPtr<ID3DBlob>>            shaders_;
   ComPtr<ID3D12RootSignature>                                  rootSign_ = nullptr;
@@ -200,16 +200,16 @@ void BlendApp::Update(const BaseTimer& timer)
   // Update view matrix
   float phi = 0.2f * XM_PI;
   float theta = 1.5f * XM_PI;
-  float radius =  15.0f;
-  
+  float radius =  100.0f;
+
   XMFLOAT3 eye_pos = XMFLOAT3(radius * sinf(phi) * cosf(theta),
                               radius * cosf(phi),
                               radius * sinf(phi) * sinf(theta));
-  
+
   XMVECTOR pos = XMVectorSet(eye_pos.x, eye_pos.y, eye_pos.z, 1.0f);
   XMVECTOR target = XMVectorZero();
   XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-  
+
   XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
   XMStoreFloat4x4(&view_, view);
 
@@ -217,7 +217,7 @@ void BlendApp::Update(const BaseTimer& timer)
   PassConstants pass_const = {};
   XMStoreFloat4x4(&pass_const.ViewProj, XMMatrixTranspose(view_proj));
   passCb_->CopyData(0, pass_const);
-  
+
   if ((m_currentFence != 0) && (m_fence->GetCompletedValue() < m_currentFence)) {
       HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
       ThrowIfFailed(m_fence->SetEventOnCompletion(m_currentFence, eventHandle));
@@ -322,7 +322,7 @@ void BlendApp::BuildTerrainGeometry()
 
   geo_ = std::make_unique<MeshGeometry>();
   geo_->name = "terrain";
-  
+
   ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo_->vertexBufferCPU));
   CopyMemory(geo_->vertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
 
@@ -466,7 +466,7 @@ void BlendApp::BuildPipelines()
                                  shaders_["std_ps"]->GetBufferSize()
   };
   std_gfx_pipe.RasterizerState         = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-  // std_gfx_pipe.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+  std_gfx_pipe.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
   std_gfx_pipe.BlendState              = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
   std_gfx_pipe.DepthStencilState       = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
   std_gfx_pipe.SampleMask              = UINT_MAX;
@@ -539,7 +539,6 @@ void BlendApp::BuildRootSignature()
                                                  serialized_root_sign->GetBufferPointer(),
                                                  serialized_root_sign->GetBufferSize(),
                                                  IID_PPV_ARGS(rootSign_.GetAddressOf())));
-                
 }
 
 
