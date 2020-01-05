@@ -125,6 +125,7 @@ private:
   virtual void OnMouseMove(WPARAM btnState, int x, int y) override { }
   virtual void OnKeyDown(WPARAM wparam) override {}
 
+  void BuildRootSignature();
   void BuildTerrainGeometry();
   void BuildInputLayout();
   void BuildShaders();
@@ -175,7 +176,9 @@ bool BlendApp::Initialize()
     BuildShaders();
     BuildDescriptorHeaps();
     BuildConstBufferViews();
-  
+    BuildRootSignature();
+    BuildPipelines();
+
     // Submit the initialization commands.
     ThrowIfFailed(m_commandList->Close());
     ID3D12CommandList* cmdLists[] =  { m_commandList.Get() };
@@ -236,7 +239,7 @@ void BlendApp::OnResize()
 void BlendApp::Draw(const BaseTimer& timer)
 {
   ThrowIfFailed(m_directCmdListAlloc->Reset());
-  ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
+  ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), pipelines_["std_gfx_pipe"].Get()));
 
   m_commandList->RSSetViewports(1, &m_screenViewport);
   m_commandList->RSSetScissorRects(1, &m_scissorRect);
@@ -264,6 +267,11 @@ void BlendApp::Draw(const BaseTimer& timer)
                                     true,                     // descriptors are contiguous
                                     &DepthStencilView());     // handle to ds
 
+  m_commandList->SetGraphicsRootSignature(rootSign_.Get());
+  ID3D12DescriptorHeap* desc_heaps[] = { cbvHeap_.Get() };
+  m_commandList->SetDescriptorHeaps(_countof(desc_heaps), desc_heaps);
+  m_commandList->SetGraphicsRootDescriptorTable(0, cbvHeap_->GetGPUDescriptorHandleForHeapStart());
+    
   // Transition the render target back to be presentable.
   m_commandList->ResourceBarrier(1,
                                  &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -309,7 +317,7 @@ void BlendApp::BuildInputLayout()
   inputLayout_ =
     {
      {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-     {"COLOR",    0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+     {"NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
      {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
     };
 }
@@ -459,7 +467,37 @@ void BlendApp::BuildConstBufferViews()
   m_d3dDevice->CreateConstantBufferView(&cbv_desc, heap_handle);
 }
 
+// Builds the root signature for this demo.
+void BlendApp::BuildRootSignature()
+{
+  CD3DX12_DESCRIPTOR_RANGE cbv_table;
+  cbv_table.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
 
+  CD3DX12_ROOT_PARAMETER root_param[1];
+  root_param[0].InitAsDescriptorTable(1, &cbv_table);
+
+  CD3DX12_ROOT_SIGNATURE_DESC root_sign_desc(1, root_param, 0, nullptr,
+                                             D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+  ComPtr<ID3DBlob> serialized_root_sign = nullptr;
+  ComPtr<ID3DBlob> error_blob           = nullptr;
+
+  HRESULT hr = D3D12SerializeRootSignature(&root_sign_desc,
+                                           D3D_ROOT_SIGNATURE_VERSION_1,
+                                           serialized_root_sign.GetAddressOf(),
+                                           error_blob.GetAddressOf());
+
+  if (error_blob != nullptr) {
+    ::OutputDebugStringA((char*)error_blob->GetBufferPointer());
+  }
+  ThrowIfFailed(hr);
+
+  ThrowIfFailed(m_d3dDevice->CreateRootSignature(0,
+                                                 serialized_root_sign->GetBufferPointer(),
+                                                 serialized_root_sign->GetBufferSize(),
+                                                 IID_PPV_ARGS(rootSign_.GetAddressOf())));
+                
+}
 
 
 /**
@@ -473,11 +511,12 @@ Blending demo agenda:
   :- create pipeline
   :- write vertex and pixel shaders
   :- create descriptors
-  - create const buffer view for the world view proj matrix
+  :- create const buffer view for the world view proj matrix
+  :- create root signature
+  :- upload constant buffers
+  :- Compile shaders
+  - bind the const buffer view to the root signature
   - upload vertex/index buffers
-  - upload constant buffers
-  - create root signature
-  - load texture
   - write drawing commands
 - Frame resources, for rendering one full frame
 - triple buffering
