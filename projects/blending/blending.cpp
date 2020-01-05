@@ -144,6 +144,8 @@ private:
   XMFLOAT4X4 view_ = MathHelper::Identity4x4();
   XMFLOAT4X4 proj_ = MathHelper::Identity4x4();
 
+  // Geometries to draw.
+  std::unique_ptr<MeshGeometry> geo_ = nullptr;
 };
 
 // Demo constructor.
@@ -267,11 +269,20 @@ void BlendApp::Draw(const BaseTimer& timer)
                                     true,                     // descriptors are contiguous
                                     &DepthStencilView());     // handle to ds
 
+  // Bind the desc heap to the graphics root signature.
   m_commandList->SetGraphicsRootSignature(rootSign_.Get());
   ID3D12DescriptorHeap* desc_heaps[] = { cbvHeap_.Get() };
   m_commandList->SetDescriptorHeaps(_countof(desc_heaps), desc_heaps);
   m_commandList->SetGraphicsRootDescriptorTable(0, cbvHeap_->GetGPUDescriptorHandleForHeapStart());
-    
+
+  // Set vertex buffer and write draw commands.
+  m_commandList->IASetVertexBuffers(0, 1, &geo_->VertexBufferView());
+  m_commandList->IASetIndexBuffer(&geo_->IndexBufferView());
+  m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+  auto sub_mesh = geo_->drawArgs["terrain"];
+  m_commandList->DrawIndexedInstanced(sub_mesh.indexCount, 1, sub_mesh.startIndexLocation, sub_mesh.baseVertexLocation, 0);
+
   // Transition the render target back to be presentable.
   m_commandList->ResourceBarrier(1,
                                  &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -308,7 +319,39 @@ void BlendApp::BuildTerrainGeometry()
 
   std::vector<std::uint16_t> indices = grid.GetIndices16();
   const UINT ibByteSize = static_cast<UINT>(indices.size() * sizeof(uint16_t));
+
+  geo_ = std::make_unique<MeshGeometry>();
+  geo_->name = "terrain";
   
+  ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo_->vertexBufferCPU));
+  CopyMemory(geo_->vertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+  ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo_->indexBufferCPU));
+  CopyMemory(geo_->indexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+  geo_->vertexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+                                                        m_commandList.Get(),
+                                                        vertices.data(),
+                                                        vbByteSize,
+                                                        geo_->vertexBufferUploader);
+
+  geo_->indexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+                                                       m_commandList.Get(),
+                                                       indices.data(),
+                                                       ibByteSize,
+                                                       geo_->indexBufferUploader);
+
+  geo_->vertexByteStride = sizeof(ShaderVertex);
+  geo_->vertexBufferByteSize = vbByteSize;
+  geo_->indexFormat = DXGI_FORMAT_R16_UINT;
+  geo_->indexBufferByteSize = ibByteSize;
+
+  SubmeshGeometry sub_mesh;
+  sub_mesh.indexCount = static_cast<UINT>(indices.size());
+  sub_mesh.startIndexLocation = 0;
+  sub_mesh.baseVertexLocation = 0;
+
+  geo_->drawArgs["terrain"] = sub_mesh;
 }
 
 // Builds input layout.
