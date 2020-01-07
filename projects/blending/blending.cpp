@@ -133,6 +133,8 @@ private:
   void BuildDescriptorHeaps();
   void BuildConstBufferViews();
 
+  float GetHillsHeight(float x, float y) const;
+  
   std::vector<D3D12_INPUT_ELEMENT_DESC>                        inputLayout_;
   std::unordered_map<std::string, ComPtr<ID3DBlob>>            shaders_;
   ComPtr<ID3D12RootSignature>                                  rootSign_ = nullptr;
@@ -200,7 +202,7 @@ void BlendApp::Update(const BaseTimer& timer)
   // Update view matrix
   float phi = 0.2f * XM_PI;
   float theta = 1.5f * XM_PI;
-  float radius =  100.0f;
+  float radius =  200.0f;
 
   XMFLOAT3 eye_pos = XMFLOAT3(radius * sinf(phi) * cosf(theta),
                               radius * cosf(phi),
@@ -301,6 +303,12 @@ void BlendApp::Draw(const BaseTimer& timer)
   m_commandQueue->Signal(m_fence.Get(), m_currentFence);
 }
 
+// Applies y=f(x,z) to the values provided.
+float BlendApp::GetHillsHeight(float x, float z) const
+{
+  return 0.3f * (z * sinf(0.1f * x) + x * cosf(0.1f * z));
+}
+
 // Function to generate terrain geometry
 void BlendApp::BuildTerrainGeometry()
 {
@@ -311,6 +319,7 @@ void BlendApp::BuildTerrainGeometry()
   for (size_t i = 0; i < grid.vertices_.size(); ++i) {
     auto& p = grid.vertices_[i].position_;
     vertices[i].pos_ = p;
+    vertices[i].pos_.y = GetHillsHeight(p.x, p.z);
     vertices[i].nor_ = grid.vertices_[i].normal_;
     vertices[i].tex_ = grid.vertices_[i].texC_;
   }
@@ -548,7 +557,7 @@ Blending demo agenda:
 :- swapchain buffer already created in BaseApp
 :- create render target and clear to color, buffers created by BaseApp
 :- single fence for proper wait until reset
-- Draw a single grid with mouse movements
+:- Draw a single grid with mouse movements
   :- generate mesh for grid.
   :- create pipeline
   :- write vertex and pixel shaders
@@ -557,9 +566,11 @@ Blending demo agenda:
   :- create root signature
   :- upload constant buffers
   :- Compile shaders
-  - bind the const buffer view to the root signature
-  - upload vertex/index buffers
-  - write drawing commands
+  :- bind the const buffer view to the root signature
+  :- upload vertex/index buffers
+  :- write drawing commands
+- Create terrain geometry for land
+ - apply y=f(x,z) to grid vertices
 - Frame resources, for rendering one full frame
 - triple buffering
 - Draw a textured crate
