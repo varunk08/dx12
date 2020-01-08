@@ -42,3 +42,10 @@ CMakeFiles/
 # build dirs
 build/
 build_*/
+
+# Emacs files
+GPATH
+GRTAGS
+GTAGS
+*~
+*#
