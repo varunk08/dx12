@@ -120,10 +120,10 @@ private:
   void Update(const BaseTimer& timer) override;
   void Draw(const BaseTimer& timer) override;
 
-  virtual void OnMouseDown(WPARAM btnState, int x, int y) override { }
-  virtual void OnMouseUp(WPARAM btnState, int x, int y) override { }
-  virtual void OnMouseMove(WPARAM btnState, int x, int y) override { }
-  virtual void OnKeyDown(WPARAM wparam) override {}
+  virtual void OnMouseDown(WPARAM btnState, int x, int y) override;
+  virtual void OnMouseUp(WPARAM btnState, int x, int y) override;
+  virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
+  virtual void OnKeyDown(WPARAM wparam) override;
 
   void BuildRootSignature();
   void BuildTerrainGeometry();
@@ -148,6 +148,12 @@ private:
 
   // Geometries to draw.
   std::unique_ptr<MeshGeometry> geo_ = nullptr;
+
+  // Mouse parameters.
+  POINT lastMousePos_;
+  float radius_ = 200.0f;
+  float phi_    = 0.2f * XM_PI;
+  float theta_  = 1.5f * XM_PI;
 };
 
 // Demo constructor.
@@ -199,14 +205,9 @@ bool BlendApp::Initialize()
 // Updates resource state for a frame.
 void BlendApp::Update(const BaseTimer& timer)
 {
-  // Update view matrix
-  float phi = 0.2f * XM_PI;
-  float theta = 1.5f * XM_PI;
-  float radius =  200.0f;
-
-  XMFLOAT3 eye_pos = XMFLOAT3(radius * sinf(phi) * cosf(theta),
-                              radius * cosf(phi),
-                              radius * sinf(phi) * sinf(theta));
+   XMFLOAT3 eye_pos = XMFLOAT3(radius_ * sinf(phi_) * cosf(theta_),
+                              radius_ * cosf(phi_),
+                              radius_ * sinf(phi_) * sinf(theta_));
 
   XMVECTOR pos = XMVectorSet(eye_pos.x, eye_pos.y, eye_pos.z, 1.0f);
   XMVECTOR target = XMVectorZero();
@@ -550,6 +551,49 @@ void BlendApp::BuildRootSignature()
                                                  IID_PPV_ARGS(rootSign_.GetAddressOf())));
 }
 
+// When the mouse button is pressed down.
+void BlendApp::OnMouseDown(WPARAM btnState, int x, int y)
+{
+  lastMousePos_.x = x;
+  lastMousePos_.y = y;
+
+  // All mouse movement is captured and reported to this application.
+  SetCapture(mhMainWnd);
+}
+
+// When the pressed mouse button is released.
+void BlendApp::OnMouseUp(WPARAM btnState, int x, int y)
+{
+  // Release the captured mouse to the OS.
+  ReleaseCapture();
+}
+
+// When the mouse is moved.
+void BlendApp::OnMouseMove(WPARAM btn_state, int x, int y)
+{
+  if ((btn_state & MK_LBUTTON) != 0) { // Left mouse button changes angle of view.
+    float dx = XMConvertToRadians(0.25f * static_cast<float>(x - lastMousePos_.x));
+    float dy = XMConvertToRadians(0.25f * static_cast<float>(y - lastMousePos_.y));
+
+    theta_ += dx;
+    phi_   += dy;
+
+    phi_ = MathHelper::Clamp(phi_, 0.1f, MathHelper::Pi - 0.1f);
+  } else if ((btn_state & MK_RBUTTON) != 0) { // right mouse button changes zoom.
+    float dx = 0.2f * static_cast<float>(x - lastMousePos_.x);
+    float dy = 0.2f * static_cast<float>(y - lastMousePos_.y);
+    radius_ += dx - dy;
+    radius_ = MathHelper::Clamp(radius_, 5.0f, 600.0f);
+  }
+
+  lastMousePos_.x = x;
+  lastMousePos_.y = y;
+}
+
+// When any key board key is pressed.
+void BlendApp::OnKeyDown(WPARAM wparam)
+{
+}
 
 /**
 
@@ -569,8 +613,8 @@ Blending demo agenda:
   :- bind the const buffer view to the root signature
   :- upload vertex/index buffers
   :- write drawing commands
-- Create terrain geometry for land
- - apply y=f(x,z) to grid vertices
+:- Create terrain geometry for land
+ :- apply y=f(x,z) to grid vertices
 - Frame resources, for rendering one full frame
 - triple buffering
 - Draw a textured crate
