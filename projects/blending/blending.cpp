@@ -131,7 +131,7 @@ private:
   void BuildShaders();
   void BuildPipelines();
   void BuildDescriptorHeaps();
-  void BuildConstBufferViews();
+  void BuildBufferViews();
   void LoadTextures();
   
   float GetHillsHeight(float x, float y) const;
@@ -187,7 +187,7 @@ bool BlendApp::Initialize()
     BuildInputLayout();
     BuildShaders();
     BuildDescriptorHeaps();
-    BuildConstBufferViews();
+    BuildBufferViews();
     BuildRootSignature();
     BuildPipelines();
 
@@ -496,18 +496,19 @@ void BlendApp::BuildPipelines()
 void BlendApp::BuildDescriptorHeaps()
 {
   // Create a single const-buf-view heap for the world view proj matrix for the simple case.
-  D3D12_DESCRIPTOR_HEAP_DESC cbv_heap_desc;
-  cbv_heap_desc.NumDescriptors = 1;
-  cbv_heap_desc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-  cbv_heap_desc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-  cbv_heap_desc.NodeMask       = 0;
+  D3D12_DESCRIPTOR_HEAP_DESC cbv_srv_heap_desc;
+  cbv_srv_heap_desc.NumDescriptors = 2;
+  cbv_srv_heap_desc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+  cbv_srv_heap_desc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+  cbv_srv_heap_desc.NodeMask       = 0;
 
-  ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbv_heap_desc, IID_PPV_ARGS(&cbvHeap_)));
+  ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbv_srv_heap_desc, IID_PPV_ARGS(&cbvHeap_)));
 }
 
-// Creates a const buffer and also bBuilds the const buffer views for the world view projection matrix used for this demo
-void BlendApp::BuildConstBufferViews()
+// Creates CBV for the world view projection matrix and SRVs for the textures used for this demo.
+void BlendApp::BuildBufferViews()
 {
+  // Create a const buffer for the world view projection matrix.
   passCb_ = std::make_unique<UploadBuffer<PassConstants>>(m_d3dDevice.Get(),
                                                           1,      // Element count.
                                                           true);  // Is a const buffer?
@@ -520,6 +521,21 @@ void BlendApp::BuildConstBufferViews()
   cbv_desc.SizeInBytes    = BaseUtil::CalcConstantBufferByteSize(sizeof(PassConstants));
 
   m_d3dDevice->CreateConstantBufferView(&cbv_desc, heap_handle);
+
+  // Create a SRV for the texture used in this demo. The texture should have been created by now.
+  assert(textures_.size() && textures_["grass_tex"] != nullptr);
+  auto grass_tex = textures_["grass_tex"]->resource_;
+  
+  D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+  srv_desc.Shader4ComponentMapping   = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+  srv_desc.Format                    = grass_tex->GetDesc().Format;
+  srv_desc.ViewDimension             = D3D12_SRV_DIMENSION_TEXTURE2D;
+  srv_desc.Texture2D.MostDetailedMip = 0;
+  srv_desc.Texture2D.MipLevels       = -1;
+
+  // Create the next view after offsetting by 1, since the MVP matrix CBV is at offset 0.
+  heap_handle.Offset(1, m_cbvSrvUavDescriptorSize);
+  m_d3dDevice->CreateShaderResourceView(grass_tex.Get(), &srv_desc, heap_handle);
 }
 
 // Builds the root signature for this demo.
@@ -528,10 +544,24 @@ void BlendApp::BuildRootSignature()
   CD3DX12_DESCRIPTOR_RANGE cbv_table;
   cbv_table.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
 
-  CD3DX12_ROOT_PARAMETER root_param[1];
+  CD3DX12_DESCRIPTOR_RANGE srv_table;
+  srv_table.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+  
+  CD3DX12_ROOT_PARAMETER root_param[2];
   root_param[0].InitAsDescriptorTable(1, &cbv_table);
+  root_param[1].InitAsDescriptorTable(1, &srv_table);
 
-  CD3DX12_ROOT_SIGNATURE_DESC root_sign_desc(1, root_param, 0, nullptr,
+  CD3DX12_STATIC_SAMPLER_DESC linear_sampler = CD3DX12_STATIC_SAMPLER_DESC(0,
+                                                                          D3D12_FILTER_MIN_MAG_MIP_LINEAR,
+                                                                          D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+                                                                          D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+                                                                          D3D12_TEXTURE_ADDRESS_MODE_WRAP);
+  std::array<CD3DX12_STATIC_SAMPLER_DESC, 1> static_samplers = { linear_sampler };
+                                                                  
+  CD3DX12_ROOT_SIGNATURE_DESC root_sign_desc(2,
+                                             root_param,
+                                             1,
+                                             static_samplers.data(),
                                              D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
   ComPtr<ID3DBlob> serialized_root_sign = nullptr;
