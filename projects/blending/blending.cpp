@@ -132,7 +132,8 @@ private:
   void BuildPipelines();
   void BuildDescriptorHeaps();
   void BuildConstBufferViews();
-
+  void LoadTextures();
+  
   float GetHillsHeight(float x, float y) const;
   
   std::vector<D3D12_INPUT_ELEMENT_DESC>                        inputLayout_;
@@ -141,7 +142,7 @@ private:
   std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> pipelines_;
   ComPtr<ID3D12DescriptorHeap>                                 cbvHeap_;
   std::unique_ptr<UploadBuffer<PassConstants>>                 passCb_ = nullptr;     // Stores the MVP matrices etc.
-
+  std::unordered_map<std::string, std::unique_ptr<Texture>>    textures_;
   // Matrices
   XMFLOAT4X4 view_ = MathHelper::Identity4x4();
   XMFLOAT4X4 proj_ = MathHelper::Identity4x4();
@@ -181,6 +182,7 @@ bool BlendApp::Initialize()
     ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
     m_cbvSrvUavDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
+    LoadTextures();
     BuildTerrainGeometry();
     BuildInputLayout();
     BuildShaders();
@@ -595,6 +597,19 @@ void BlendApp::OnKeyDown(WPARAM wparam)
 {
 }
 
+void BlendApp::LoadTextures()
+{
+  auto grass_tex = std::make_unique<Texture>();
+  grass_tex->name_ = "grass_tex";
+  grass_tex->filename_ = L"..\\textures\\grass.dds";
+  ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_d3dDevice.Get(),
+                                                    m_commandList.Get(),
+                                                    grass_tex->filename_.c_str(),
+                                                    grass_tex->resource_,
+                                                    grass_tex->uploadHeap_));
+  textures_[grass_tex->name_] = std::move(grass_tex);
+}
+
 /**
 
 Blending demo agenda:
@@ -615,6 +630,10 @@ Blending demo agenda:
   :- write drawing commands
 :- Create terrain geometry for land
  :- apply y=f(x,z) to grid vertices
+- Load texture to terrain.
+  - create descriptor for texture
+  - shader changes required for sampling texture
+  - update root signature
 - Frame resources, for rendering one full frame
 - triple buffering
 - Draw a textured crate
