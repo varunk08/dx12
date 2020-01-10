@@ -133,9 +133,9 @@ private:
   void BuildDescriptorHeaps();
   void BuildBufferViews();
   void LoadTextures();
-  
+
   float GetHillsHeight(float x, float y) const;
-  
+
   std::vector<D3D12_INPUT_ELEMENT_DESC>                        inputLayout_;
   std::unordered_map<std::string, ComPtr<ID3DBlob>>            shaders_;
   ComPtr<ID3D12RootSignature>                                  rootSign_ = nullptr;
@@ -478,7 +478,7 @@ void BlendApp::BuildPipelines()
                                  shaders_["std_ps"]->GetBufferSize()
   };
   std_gfx_pipe.RasterizerState         = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-  std_gfx_pipe.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+  //  std_gfx_pipe.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
   std_gfx_pipe.BlendState              = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
   std_gfx_pipe.DepthStencilState       = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
   std_gfx_pipe.SampleMask              = UINT_MAX;
@@ -525,7 +525,7 @@ void BlendApp::BuildBufferViews()
   // Create a SRV for the texture used in this demo. The texture should have been created by now.
   assert(textures_.size() && textures_["grass_tex"] != nullptr);
   auto grass_tex = textures_["grass_tex"]->resource_;
-  
+
   D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
   srv_desc.Shader4ComponentMapping   = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
   srv_desc.Format                    = grass_tex->GetDesc().Format;
@@ -541,15 +541,17 @@ void BlendApp::BuildBufferViews()
 // Builds the root signature for this demo.
 void BlendApp::BuildRootSignature()
 {
-  CD3DX12_DESCRIPTOR_RANGE cbv_table;
-  cbv_table.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
+  CD3DX12_DESCRIPTOR_RANGE desc_table[2];
+  desc_table[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, 0);
 
-  CD3DX12_DESCRIPTOR_RANGE srv_table;
-  srv_table.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
-  
-  CD3DX12_ROOT_PARAMETER root_param[2];
-  root_param[0].InitAsDescriptorTable(1, &cbv_table);
-  root_param[1].InitAsDescriptorTable(1, &srv_table);
+  desc_table[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, // Descriptor type.
+                     1,                               // Num descriptors.
+                     0,                               // Base shader register.
+                     0,                               // Register space.
+                     1);                              // Offset from the start of the table.
+
+  CD3DX12_ROOT_PARAMETER root_param;
+  root_param.InitAsDescriptorTable(2, desc_table, D3D12_SHADER_VISIBILITY_ALL);
 
   CD3DX12_STATIC_SAMPLER_DESC linear_sampler = CD3DX12_STATIC_SAMPLER_DESC(0,
                                                                           D3D12_FILTER_MIN_MAG_MIP_LINEAR,
@@ -557,9 +559,9 @@ void BlendApp::BuildRootSignature()
                                                                           D3D12_TEXTURE_ADDRESS_MODE_WRAP,
                                                                           D3D12_TEXTURE_ADDRESS_MODE_WRAP);
   std::array<CD3DX12_STATIC_SAMPLER_DESC, 1> static_samplers = { linear_sampler };
-                                                                  
-  CD3DX12_ROOT_SIGNATURE_DESC root_sign_desc(2,
-                                             root_param,
+
+  CD3DX12_ROOT_SIGNATURE_DESC root_sign_desc(1,
+                                             &root_param,
                                              1,
                                              static_samplers.data(),
                                              D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
