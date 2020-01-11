@@ -102,6 +102,12 @@ public:
 private:
 };
 
+// Stores parameters for each item in the scene that will be rendered with a draw call.
+struct RenderObject
+{
+  
+};
+
 // Current demo class to handle user input and to setup demo-specific resource and commands.
 class BlendApp : public BaseApp
 {
@@ -127,6 +133,7 @@ private:
 
   void BuildRootSignature();
   void BuildTerrainGeometry();
+  void BuildWaterGeometry();
   void BuildInputLayout();
   void BuildShaders();
   void BuildPipelines();
@@ -148,7 +155,10 @@ private:
   XMFLOAT4X4 proj_ = MathHelper::Identity4x4();
 
   // Geometries to draw.
-  std::unique_ptr<MeshGeometry> geo_ = nullptr;
+  std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> geometries;
+
+  // Objects to be rendered in a scene.
+  std::vector<std::unique_ptr<RenderObject>>                    renderObject;
 
   // Mouse parameters.
   POINT lastMousePos_;
@@ -281,11 +291,11 @@ void BlendApp::Draw(const BaseTimer& timer)
   m_commandList->SetGraphicsRootDescriptorTable(0, cbvHeap_->GetGPUDescriptorHandleForHeapStart());
 
   // Set vertex buffer and write draw commands.
-  m_commandList->IASetVertexBuffers(0, 1, &geo_->VertexBufferView());
-  m_commandList->IASetIndexBuffer(&geo_->IndexBufferView());
+  m_commandList->IASetVertexBuffers(0, 1, &geometries["terrain"]->VertexBufferView());
+  m_commandList->IASetIndexBuffer(&geometries["terrain"]->IndexBufferView());
   m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-  auto sub_mesh = geo_->drawArgs["terrain"];
+  auto sub_mesh = geometries["terrain"]->drawArgs["terrain"];
   m_commandList->DrawIndexedInstanced(sub_mesh.indexCount, 1, sub_mesh.startIndexLocation, sub_mesh.baseVertexLocation, 0);
 
   // Transition the render target back to be presentable.
@@ -316,10 +326,16 @@ float BlendApp::GetHillsHeight(float x, float z) const
 void BlendApp::BuildTerrainGeometry()
 {
   GeometryGenerator geoGen;
-  MeshData grid = geoGen.CreateGrid(160.0f, 160.0f, 50, 50);
 
-  std::vector<ShaderVertex> vertices(grid.vertices_.size());
-  for (size_t i = 0; i < grid.vertices_.size(); ++i) {
+  MeshData grid = geoGen.CreateGrid(200.0f, 200.0f, 50, 50);
+
+  const size_t totalVertices = grid.vertices_.size();
+  const size_t totalIndices  = grid.indices32_.size();
+  
+  std::vector<ShaderVertex> vertices(totalVertices);
+
+  size_t i = 0;
+  for (; i < grid.vertices_.size(); i++) {
     auto& p = grid.vertices_[i].position_;
     vertices[i].pos_ = p;
     vertices[i].pos_.y = GetHillsHeight(p.x, p.z);
@@ -330,9 +346,10 @@ void BlendApp::BuildTerrainGeometry()
   const UINT vbByteSize = static_cast<UINT>(vertices.size() * sizeof(ShaderVertex));
 
   std::vector<std::uint16_t> indices = grid.GetIndices16();
+  
   const UINT ibByteSize = static_cast<UINT>(indices.size() * sizeof(uint16_t));
 
-  geo_ = std::make_unique<MeshGeometry>();
+  auto geo_ = std::make_unique<MeshGeometry>();
   geo_->name = "terrain";
 
   ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo_->vertexBufferCPU));
@@ -364,6 +381,8 @@ void BlendApp::BuildTerrainGeometry()
   sub_mesh.baseVertexLocation = 0;
 
   geo_->drawArgs["terrain"] = sub_mesh;
+
+  geometries["terrain"] = std::move(geo_);
 }
 
 // Builds input layout.
@@ -662,15 +681,19 @@ Blending demo agenda:
   :- write drawing commands
 :- Create terrain geometry for land
  :- apply y=f(x,z) to grid vertices
-- Load texture to terrain.
-  - create descriptor for texture
-  - shader changes required for sampling texture
-  - update root signature
-- Frame resources, for rendering one full frame
-- triple buffering
-- Draw a textured crate
+:- Load texture to terrain.
+  :- create descriptor for texture
+  :- shader changes required for sampling texture
+  :- update root signature
 - Draw animated water
+  - animated grid texture
+  - textured animated surface
+  - animate texture in shader
+- Implement lighting
+- Draw a textured crate
 - Draw Mountains
-- water blends with other elements
+- Water blends with other elements
+- Frame resources, for rendering one full frame
+- Triple buffering
 
 **/
