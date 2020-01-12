@@ -110,6 +110,7 @@ struct RenderObject
   UINT indexCount = 0;
   UINT startIndexLocation = 0;
   UINT baseVertexLocation = 0;
+  UINT texIndex = 0;
 };
 
 // Current demo class to handle user input and to setup demo-specific resource and commands.
@@ -153,7 +154,7 @@ private:
   std::unordered_map<std::string, ComPtr<ID3DBlob>>            shaders_;
   ComPtr<ID3D12RootSignature>                                  rootSign_ = nullptr;
   std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> pipelines_;
-  ComPtr<ID3D12DescriptorHeap>                                 cbvHeap_;
+  ComPtr<ID3D12DescriptorHeap>                                 descriptorHeap_;
   std::unique_ptr<UploadBuffer<PassConstants>>                 passCb_ = nullptr;     // Stores the MVP matrices etc.
   std::unordered_map<std::string, std::unique_ptr<Texture>>    textures_;
   // Matrices
@@ -294,9 +295,7 @@ void BlendApp::Draw(const BaseTimer& timer)
 
   // Bind the desc heap to the graphics root signature.
   m_commandList->SetGraphicsRootSignature(rootSign_.Get());
-  ID3D12DescriptorHeap* desc_heaps[] = { cbvHeap_.Get() };
-  m_commandList->SetDescriptorHeaps(_countof(desc_heaps), desc_heaps);
-  m_commandList->SetGraphicsRootDescriptorTable(0, cbvHeap_->GetGPUDescriptorHandleForHeapStart());
+  m_commandList->SetGraphicsRootConstantBufferView(0, passCb_->Resource()->GetGPUVirtualAddress());
 
   DrawRenderObjects();
 
@@ -326,6 +325,10 @@ void BlendApp::DrawRenderObjects()
     m_commandList->IASetIndexBuffer(&render_obj->pGeo->IndexBufferView());
     m_commandList->IASetPrimitiveTopology(render_obj->primitiveType);
 
+    CD3DX12_GPU_DESCRIPTOR_HANDLE tex(descriptorHeap_->GetGPUDescriptorHandleForHeapStart());
+    tex.Offset(render_obj->texIndex, m_cbvSrvUavDescriptorSize);
+    m_commandList->SetGraphicsRootDescriptorTable(1, tex);
+               
     m_commandList->DrawIndexedInstanced(render_obj->indexCount, 1, render_obj->startIndexLocation, render_obj->baseVertexLocation, 0);
   }
 }
@@ -460,14 +463,16 @@ void BlendApp::BuildRenderObjects()
   water->indexCount = water->pGeo->drawArgs["water"].indexCount;
   water->startIndexLocation = water->pGeo->drawArgs["water"].startIndexLocation;
   water->baseVertexLocation = water->pGeo->drawArgs["water"].baseVertexLocation;
-
+  water->texIndex = 1;
+  
   auto land = std::make_unique<RenderObject>();
   land->world = MathHelper::Identity4x4();
   land->pGeo = geometries["terrain"].get();
   land->indexCount = land->pGeo->drawArgs["terrain"].indexCount;
   land->startIndexLocation = land->pGeo->drawArgs["terrain"].startIndexLocation;
   land->baseVertexLocation = land->pGeo->drawArgs["terrain"].baseVertexLocation;
-
+  land->texIndex = 0;
+  
   allRenderObjects.push_back(std::move(water));
   allRenderObjects.push_back(std::move(land));
 }
@@ -602,13 +607,13 @@ void BlendApp::BuildPipelines()
 void BlendApp::BuildDescriptorHeaps()
 {
   // Create a single const-buf-view heap for the world view proj matrix for the simple case.
-  D3D12_DESCRIPTOR_HEAP_DESC cbv_srv_heap_desc;
-  cbv_srv_heap_desc.NumDescriptors = 2;
-  cbv_srv_heap_desc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-  cbv_srv_heap_desc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-  cbv_srv_heap_desc.NodeMask       = 0;
+  D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc;
+  srv_heap_desc.NumDescriptors = 2; // 2 SRVs for textures so far in this demo.
+  srv_heap_desc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+  srv_heap_desc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+  srv_heap_desc.NodeMask       = 0;
 
-  ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbv_srv_heap_desc, IID_PPV_ARGS(&cbvHeap_)));
+  ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&srv_heap_desc, IID_PPV_ARGS(&descriptorHeap_)));
 }
 
 // Creates CBV for the world view projection matrix and SRVs for the textures used for this demo.
@@ -619,14 +624,7 @@ void BlendApp::BuildBufferViews()
                                                           1,      // Element count.
                                                           true);  // Is a const buffer?
 
-  auto cb_address  = passCb_->Resource()->GetGPUVirtualAddress();
-  auto heap_handle = CD3DX12_CPU_DESCRIPTOR_HANDLE(cbvHeap_->GetCPUDescriptorHandleForHeapStart());
-
-  D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc = {};
-  cbv_desc.BufferLocation = cb_address;
-  cbv_desc.SizeInBytes    = BaseUtil::CalcConstantBufferByteSize(sizeof(PassConstants));
-
-  m_d3dDevice->CreateConstantBufferView(&cbv_desc, heap_handle);
+  auto heap_handle = CD3DX12_CPU_DESCRIPTOR_HANDLE(descriptorHeap_->GetCPUDescriptorHandleForHeapStart());
 
   // Create a SRV for the texture used in this demo. The texture should have been created by now.
   assert(textures_.size() && textures_["grass_tex"] != nullptr);
@@ -639,25 +637,36 @@ void BlendApp::BuildBufferViews()
   srv_desc.Texture2D.MostDetailedMip = 0;
   srv_desc.Texture2D.MipLevels       = -1;
 
-  // Create the next view after offsetting by 1, since the MVP matrix CBV is at offset 0.
-  heap_handle.Offset(1, m_cbvSrvUavDescriptorSize);
   m_d3dDevice->CreateShaderResourceView(grass_tex.Get(), &srv_desc, heap_handle);
+
+  // Create the next view after offsetting by 1, since the grass tex SRV is at offset 0.
+  heap_handle.Offset(1, m_cbvSrvUavDescriptorSize);
+
+  assert(textures_["water_tex"] != nullptr);
+  auto water_tex = textures_["water_tex"]->resource_;
+  srv_desc.Format = water_tex->GetDesc().Format;
+  m_d3dDevice->CreateShaderResourceView(water_tex.Get(), &srv_desc, heap_handle);
 }
 
 // Builds the root signature for this demo.
 void BlendApp::BuildRootSignature()
 {
-  CD3DX12_DESCRIPTOR_RANGE desc_table[2];
-  desc_table[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, 0);
+  /* My root signature:
 
-  desc_table[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, // Descriptor type.
-                     1,                               // Num descriptors.
-                     0,                               // Base shader register.
-                     0,                               // Register space.
-                     1);                              // Offset from the start of the table.
+    [0] - CBV for the MVP matrix.
+    [1] - Descriptor table with, only one range for SRVs for the textures.
 
-  CD3DX12_ROOT_PARAMETER root_param;
-  root_param.InitAsDescriptorTable(2, desc_table, D3D12_SHADER_VISIBILITY_ALL);
+   */
+  CD3DX12_DESCRIPTOR_RANGE tex_table;
+  tex_table.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, // Descriptor type.
+                 1,                               // Num descriptors.
+                 0,                               // Base shader register.
+                 0,                               // Register space.
+                 0);                              // Offset from the start of the table.
+
+  CD3DX12_ROOT_PARAMETER root_param[2];
+  root_param[0].InitAsConstantBufferView(0);
+  root_param[1].InitAsDescriptorTable(1, &tex_table, D3D12_SHADER_VISIBILITY_PIXEL);
 
   CD3DX12_STATIC_SAMPLER_DESC linear_sampler = CD3DX12_STATIC_SAMPLER_DESC(0,
                                                                           D3D12_FILTER_MIN_MAG_MIP_LINEAR,
@@ -666,8 +675,8 @@ void BlendApp::BuildRootSignature()
                                                                           D3D12_TEXTURE_ADDRESS_MODE_WRAP);
   std::array<CD3DX12_STATIC_SAMPLER_DESC, 1> static_samplers = { linear_sampler };
 
-  CD3DX12_ROOT_SIGNATURE_DESC root_sign_desc(1,
-                                             &root_param,
+  CD3DX12_ROOT_SIGNATURE_DESC root_sign_desc(2,
+                                             root_param,
                                              1,
                                              static_samplers.data(),
                                              D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
@@ -746,6 +755,16 @@ void BlendApp::LoadTextures()
                                                     grass_tex->resource_,
                                                     grass_tex->uploadHeap_));
   textures_[grass_tex->name_] = std::move(grass_tex);
+
+  auto water_tex = std::make_unique<Texture>();
+  water_tex->name_ = "water_tex";
+  water_tex->filename_ = L"..\\textures\\water1.dds";
+  ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_d3dDevice.Get(),
+                                                    m_commandList.Get(),
+                                                    water_tex->filename_.c_str(),
+                                                    water_tex->resource_,
+                                                    water_tex->uploadHeap_));
+  textures_[water_tex->name_] = std::move(water_tex);
 }
 
 /**
