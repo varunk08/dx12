@@ -98,8 +98,6 @@ class GeometryGenerator
 public:
   GeometryGenerator() {}
   MeshData CreateGrid(float width, float depth, uint32_t m, uint32_t n);
-
-private:
 };
 
 // Stores parameters for each item in the scene that will be rendered with a draw call.
@@ -140,7 +138,8 @@ private:
   void BuildDescriptorHeaps();
   void BuildBufferViews();
   void LoadTextures();
-
+  void DrawRenderObjects();
+  
   float GetHillsHeight(float x, float y) const;
 
   std::vector<D3D12_INPUT_ELEMENT_DESC>                        inputLayout_;
@@ -194,6 +193,7 @@ bool BlendApp::Initialize()
 
     LoadTextures();
     BuildTerrainGeometry();
+    BuildWaterGeometry();
     BuildInputLayout();
     BuildShaders();
     BuildDescriptorHeaps();
@@ -290,13 +290,7 @@ void BlendApp::Draw(const BaseTimer& timer)
   m_commandList->SetDescriptorHeaps(_countof(desc_heaps), desc_heaps);
   m_commandList->SetGraphicsRootDescriptorTable(0, cbvHeap_->GetGPUDescriptorHandleForHeapStart());
 
-  // Set vertex buffer and write draw commands.
-  m_commandList->IASetVertexBuffers(0, 1, &geometries["terrain"]->VertexBufferView());
-  m_commandList->IASetIndexBuffer(&geometries["terrain"]->IndexBufferView());
-  m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-  auto sub_mesh = geometries["terrain"]->drawArgs["terrain"];
-  m_commandList->DrawIndexedInstanced(sub_mesh.indexCount, 1, sub_mesh.startIndexLocation, sub_mesh.baseVertexLocation, 0);
+  DrawRenderObjects();
 
   // Transition the render target back to be presentable.
   m_commandList->ResourceBarrier(1,
@@ -314,6 +308,28 @@ void BlendApp::Draw(const BaseTimer& timer)
 
   ++m_currentFence;
   m_commandQueue->Signal(m_fence.Get(), m_currentFence);
+}
+
+// Submits the draw calls to render each object in the scene.
+void BlendApp::DrawRenderObjects()
+{
+    
+  // Set vertex buffer and write draw commands.
+  m_commandList->IASetVertexBuffers(0, 1, &geometries["terrain"]->VertexBufferView());
+  m_commandList->IASetIndexBuffer(&geometries["terrain"]->IndexBufferView());
+  m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+  auto sub_mesh = geometries["terrain"]->drawArgs["terrain"];
+  m_commandList->DrawIndexedInstanced(sub_mesh.indexCount, 1, sub_mesh.startIndexLocation, sub_mesh.baseVertexLocation, 0);
+
+   // Set vertex buffer and write draw commands.
+  m_commandList->IASetVertexBuffers(0, 1, &geometries["water"]->VertexBufferView());
+  m_commandList->IASetIndexBuffer(&geometries["water"]->IndexBufferView());
+  m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+  sub_mesh = geometries["water"]->drawArgs["water"];
+  m_commandList->DrawIndexedInstanced(sub_mesh.indexCount, 1, sub_mesh.startIndexLocation, sub_mesh.baseVertexLocation, 0);
+
 }
 
 // Applies y=f(x,z) to the values provided.
@@ -383,6 +399,58 @@ void BlendApp::BuildTerrainGeometry()
   geo_->drawArgs["terrain"] = sub_mesh;
 
   geometries["terrain"] = std::move(geo_);
+}
+
+//Builds a grid representing water and adds it to the global geometries map.
+void BlendApp::BuildWaterGeometry()
+{
+  GeometryGenerator geoGen;
+  MeshData water_grid = geoGen.CreateGrid(200.0f, 200.0f, 50, 50);
+
+  std::vector<ShaderVertex> vert_buffer(water_grid.vertices_.size());
+  for (size_t i = 0; i < water_grid.vertices_.size(); ++i) {
+    vert_buffer[i].pos_ = water_grid.vertices_[i].position_;
+    vert_buffer[i].nor_ = water_grid.vertices_[i].normal_;
+    vert_buffer[i].tex_ = water_grid.vertices_[i].texC_;
+  }
+
+  std::vector<uint16_t> index_buffer = water_grid.GetIndices16();
+  const UINT vb_byte_size = static_cast<UINT>(sizeof(ShaderVertex) * vert_buffer.size());
+  const UINT ib_byte_size = static_cast<UINT>(sizeof(uint16_t) * index_buffer.size());
+
+  auto mesh_geo = std::make_unique<MeshGeometry>();
+  mesh_geo->name = "water";
+
+  ThrowIfFailed(D3DCreateBlob(vb_byte_size, &mesh_geo->vertexBufferCPU));
+  CopyMemory(mesh_geo->vertexBufferCPU->GetBufferPointer(), vert_buffer.data(), vb_byte_size);
+
+  ThrowIfFailed(D3DCreateBlob(ib_byte_size, &mesh_geo->indexBufferCPU));
+  CopyMemory(mesh_geo->indexBufferCPU->GetBufferPointer(), index_buffer.data(), ib_byte_size);
+
+  mesh_geo->vertexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+                                                            m_commandList.Get(),
+                                                            vert_buffer.data(),
+                                                            vb_byte_size,
+                                                            mesh_geo->vertexBufferUploader);
+  
+  mesh_geo->indexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+                                                           m_commandList.Get(),
+                                                           index_buffer.data(),
+                                                           ib_byte_size,
+                                                           mesh_geo->indexBufferUploader);
+  mesh_geo->vertexByteStride = sizeof(ShaderVertex);
+  mesh_geo->vertexBufferByteSize = vb_byte_size;
+  mesh_geo->indexFormat = DXGI_FORMAT_R16_UINT;
+  mesh_geo->indexBufferByteSize = ib_byte_size;
+
+  SubmeshGeometry sub_mesh;
+  sub_mesh.indexCount = static_cast<UINT>(index_buffer.size());
+  sub_mesh.startIndexLocation = 0;
+  sub_mesh.baseVertexLocation = 0;
+
+  mesh_geo->drawArgs["water"] = sub_mesh;
+  
+  geometries["water"] = std::move(mesh_geo);
 }
 
 // Builds input layout.
@@ -685,13 +753,14 @@ Blending demo agenda:
   :- create descriptor for texture
   :- shader changes required for sampling texture
   :- update root signature
+:- Draw Mountains
 - Draw animated water
+  - change code to enable drawing multiple objects
   - animated grid texture
   - textured animated surface
   - animate texture in shader
 - Implement lighting
 - Draw a textured crate
-- Draw Mountains
 - Water blends with other elements
 - Frame resources, for rendering one full frame
 - Triple buffering
