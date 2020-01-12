@@ -103,7 +103,13 @@ public:
 // Stores parameters for each item in the scene that will be rendered with a draw call.
 struct RenderObject
 {
-  
+  RenderObject() = default;
+  XMFLOAT4X4 world = MathHelper::Identity4x4();
+  MeshGeometry* pGeo = nullptr;
+  D3D12_PRIMITIVE_TOPOLOGY primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+  UINT indexCount = 0;
+  UINT startIndexLocation = 0;
+  UINT baseVertexLocation = 0;
 };
 
 // Current demo class to handle user input and to setup demo-specific resource and commands.
@@ -129,6 +135,7 @@ private:
   virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
   virtual void OnKeyDown(WPARAM wparam) override;
 
+  void BuildRenderObjects();
   void BuildRootSignature();
   void BuildTerrainGeometry();
   void BuildWaterGeometry();
@@ -157,7 +164,7 @@ private:
   std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> geometries;
 
   // Objects to be rendered in a scene.
-  std::vector<std::unique_ptr<RenderObject>>                    renderObject;
+  std::vector<std::unique_ptr<RenderObject>>                    allRenderObjects;
 
   // Mouse parameters.
   POINT lastMousePos_;
@@ -194,6 +201,7 @@ bool BlendApp::Initialize()
     LoadTextures();
     BuildTerrainGeometry();
     BuildWaterGeometry();
+    BuildRenderObjects();
     BuildInputLayout();
     BuildShaders();
     BuildDescriptorHeaps();
@@ -313,23 +321,13 @@ void BlendApp::Draw(const BaseTimer& timer)
 // Submits the draw calls to render each object in the scene.
 void BlendApp::DrawRenderObjects()
 {
-    
-  // Set vertex buffer and write draw commands.
-  m_commandList->IASetVertexBuffers(0, 1, &geometries["terrain"]->VertexBufferView());
-  m_commandList->IASetIndexBuffer(&geometries["terrain"]->IndexBufferView());
-  m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  for (auto& render_obj : allRenderObjects) {
+    m_commandList->IASetVertexBuffers(0, 1, &render_obj->pGeo->VertexBufferView());
+    m_commandList->IASetIndexBuffer(&render_obj->pGeo->IndexBufferView());
+    m_commandList->IASetPrimitiveTopology(render_obj->primitiveType);
 
-  auto sub_mesh = geometries["terrain"]->drawArgs["terrain"];
-  m_commandList->DrawIndexedInstanced(sub_mesh.indexCount, 1, sub_mesh.startIndexLocation, sub_mesh.baseVertexLocation, 0);
-
-   // Set vertex buffer and write draw commands.
-  m_commandList->IASetVertexBuffers(0, 1, &geometries["water"]->VertexBufferView());
-  m_commandList->IASetIndexBuffer(&geometries["water"]->IndexBufferView());
-  m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-  sub_mesh = geometries["water"]->drawArgs["water"];
-  m_commandList->DrawIndexedInstanced(sub_mesh.indexCount, 1, sub_mesh.startIndexLocation, sub_mesh.baseVertexLocation, 0);
-
+    m_commandList->DrawIndexedInstanced(render_obj->indexCount, 1, render_obj->startIndexLocation, render_obj->baseVertexLocation, 0);
+  }
 }
 
 // Applies y=f(x,z) to the values provided.
@@ -451,6 +449,27 @@ void BlendApp::BuildWaterGeometry()
   mesh_geo->drawArgs["water"] = sub_mesh;
   
   geometries["water"] = std::move(mesh_geo);
+}
+
+// Builds list of objects to rendered as a scene.
+void BlendApp::BuildRenderObjects()
+{
+  auto water = std::make_unique<RenderObject>();
+  water->world = MathHelper::Identity4x4();
+  water->pGeo = geometries["water"].get();
+  water->indexCount = water->pGeo->drawArgs["water"].indexCount;
+  water->startIndexLocation = water->pGeo->drawArgs["water"].startIndexLocation;
+  water->baseVertexLocation = water->pGeo->drawArgs["water"].baseVertexLocation;
+
+  auto land = std::make_unique<RenderObject>();
+  land->world = MathHelper::Identity4x4();
+  land->pGeo = geometries["terrain"].get();
+  land->indexCount = land->pGeo->drawArgs["terrain"].indexCount;
+  land->startIndexLocation = land->pGeo->drawArgs["terrain"].startIndexLocation;
+  land->baseVertexLocation = land->pGeo->drawArgs["terrain"].baseVertexLocation;
+
+  allRenderObjects.push_back(std::move(water));
+  allRenderObjects.push_back(std::move(land));
 }
 
 // Builds input layout.
