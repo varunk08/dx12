@@ -22,6 +22,7 @@ struct PassConstants
 struct ShaderMaterialCb
 {
   DirectX::XMFLOAT4X4 mat_transform  = MathHelper::Identity4x4();
+  DirectX::XMFLOAT4  diffuse_albedo  = { 1.0f, 1.0f, 1.0f, 1.0f };
 };
 
 // Represents all parameters of a vertex in DirectX compatible formats.
@@ -113,6 +114,7 @@ struct MaterialInfo
   int mat_cb_index =-1;
   int tex_index = -1;
   DirectX::XMFLOAT4X4 mat_transform = MathHelper::Identity4x4();
+  DirectX::XMFLOAT4  diffuse_albedo  = { 1.0f, 1.0f, 1.0f, 1.0f };
 };
 
 // Stores parameters for each item in the scene that will be rendered with a draw call.
@@ -166,7 +168,7 @@ private:
   void BuildBufferViews();
   void LoadTextures();
   void DrawRenderObjects();
-  
+
   float GetHillsHeight(float x, float y) const;
 
   std::vector<D3D12_INPUT_ELEMENT_DESC>                        inputLayout_;
@@ -178,7 +180,7 @@ private:
   std::unique_ptr<UploadBuffer<ShaderMaterialCb>>              materialCb_ = nullptr;
   std::unordered_map<std::string, std::unique_ptr<Texture>>    textures_;
   std::unordered_map<std::string, std::unique_ptr<MaterialInfo>>   materials;
-  
+
   // Matrices
   XMFLOAT4X4 view_ = MathHelper::Identity4x4();
   XMFLOAT4X4 proj_ = MathHelper::Identity4x4();
@@ -306,6 +308,7 @@ void BlendApp::UpdateMaterials(const BaseTimer& timer)
     XMMATRIX mat_transform = XMLoadFloat4x4(&pMat->mat_transform);
 
     ShaderMaterialCb mat_cb = {};
+    mat_cb.diffuse_albedo = pMat->diffuse_albedo;
     XMStoreFloat4x4(&mat_cb.mat_transform, XMMatrixTranspose(mat_transform));
     materialCb_->CopyData(pMat->mat_cb_index, mat_cb);
   }
@@ -385,7 +388,7 @@ void BlendApp::Draw(const BaseTimer& timer)
 void BlendApp::DrawRenderObjects()
 {
   UINT mat_cb_byte_size = BaseUtil::CalcConstantBufferByteSize(sizeof(ShaderMaterialCb));
-  
+
   for (auto& render_obj : allRenderObjects) {
     // Set the vertex/index buffers required for rendering this object.
     m_commandList->IASetVertexBuffers(0, 1, &render_obj->pGeo->VertexBufferView());
@@ -400,8 +403,14 @@ void BlendApp::DrawRenderObjects()
     D3D12_GPU_VIRTUAL_ADDRESS mat_cb_address = materialCb_->Resource()->GetGPUVirtualAddress() +
                                                (render_obj->pMat->mat_cb_index * mat_cb_byte_size);
     m_commandList->SetGraphicsRootConstantBufferView(2, mat_cb_address);
-    
-    m_commandList->DrawIndexedInstanced(render_obj->indexCount, 1, render_obj->startIndexLocation, render_obj->baseVertexLocation, 0);
+
+    m_commandList->DrawIndexedInstanced(render_obj->indexCount,
+                                        1,
+                                        render_obj->startIndexLocation,
+                                        render_obj->baseVertexLocation,
+                                        0);
+
+    m_commandList->SetPipelineState(pipelines_["transparent_gfx_pipe"].Get());
   }
 }
 
@@ -423,6 +432,7 @@ void BlendApp::BuildMaterials()
   water->name = "water";
   water->mat_cb_index =  1;
   water->tex_index = 1;
+  water->diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 0.5f);
   
   materials["grass"] = std::move(grass);
   materials["water"] = std::move(water);
@@ -437,7 +447,7 @@ void BlendApp::BuildTerrainGeometry()
 
   const size_t totalVertices = grid.vertices_.size();
   const size_t totalIndices  = grid.indices32_.size();
-  
+
   std::vector<ShaderVertex> vertices(totalVertices);
 
   size_t i = 0;
@@ -452,7 +462,7 @@ void BlendApp::BuildTerrainGeometry()
   const UINT vbByteSize = static_cast<UINT>(vertices.size() * sizeof(ShaderVertex));
 
   std::vector<std::uint16_t> indices = grid.GetIndices16();
-  
+
   const UINT ibByteSize = static_cast<UINT>(indices.size() * sizeof(uint16_t));
 
   auto geo_ = std::make_unique<MeshGeometry>();
@@ -522,7 +532,7 @@ void BlendApp::BuildWaterGeometry()
                                                             vert_buffer.data(),
                                                             vb_byte_size,
                                                             mesh_geo->vertexBufferUploader);
-  
+
   mesh_geo->indexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
                                                            m_commandList.Get(),
                                                            index_buffer.data(),
@@ -539,7 +549,7 @@ void BlendApp::BuildWaterGeometry()
   sub_mesh.baseVertexLocation = 0;
 
   mesh_geo->drawArgs["water"] = sub_mesh;
-  
+
   geometries["water"] = std::move(mesh_geo);
 }
 
@@ -553,7 +563,7 @@ void BlendApp::BuildRenderObjects()
   water->startIndexLocation = water->pGeo->drawArgs["water"].startIndexLocation;
   water->baseVertexLocation = water->pGeo->drawArgs["water"].baseVertexLocation;
   water->pMat = materials["water"].get();
-  
+
   auto land = std::make_unique<RenderObject>();
   land->world = MathHelper::Identity4x4();
   land->pGeo = geometries["terrain"].get();
@@ -561,9 +571,9 @@ void BlendApp::BuildRenderObjects()
   land->startIndexLocation = land->pGeo->drawArgs["terrain"].startIndexLocation;
   land->baseVertexLocation = land->pGeo->drawArgs["terrain"].baseVertexLocation;
   land->pMat = materials["grass"].get();
-  
-  allRenderObjects.push_back(std::move(water));
+
   allRenderObjects.push_back(std::move(land));
+  allRenderObjects.push_back(std::move(water));
 }
 
 // Builds input layout.
@@ -666,7 +676,7 @@ MeshData GeometryGenerator::CreateGrid(float width, float depth, uint32_t m, uin
 void BlendApp::BuildPipelines()
 {
   D3D12_GRAPHICS_PIPELINE_STATE_DESC std_gfx_pipe = {};
-
+  ZeroMemory(&std_gfx_pipe, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
   std_gfx_pipe.InputLayout    = { inputLayout_.data(), static_cast<UINT>(inputLayout_.size()) };
   std_gfx_pipe.pRootSignature = rootSign_.Get();
   std_gfx_pipe.VS             = {
@@ -690,6 +700,25 @@ void BlendApp::BuildPipelines()
   std_gfx_pipe.DSVFormat               = m_depthStencilFormat;
 
   ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&std_gfx_pipe, IID_PPV_ARGS(&pipelines_["std_gfx_pipe"])));
+
+  // Create a pipeline for rendering transparent objects.
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC transparent_gfx_pipe = std_gfx_pipe;
+  // transparent_gfx_pipe.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+  D3D12_RENDER_TARGET_BLEND_DESC blend_desc;
+  blend_desc.BlendEnable = true;
+  blend_desc.LogicOpEnable = false;
+  blend_desc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+  blend_desc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+  blend_desc.BlendOp = D3D12_BLEND_OP_ADD;
+  blend_desc.SrcBlendAlpha = D3D12_BLEND_ONE;
+  blend_desc.DestBlendAlpha = D3D12_BLEND_ZERO;
+  blend_desc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+  blend_desc.LogicOp = D3D12_LOGIC_OP_NOOP;
+  blend_desc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+  transparent_gfx_pipe.BlendState.RenderTarget[0] = blend_desc;
+  ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&transparent_gfx_pipe,
+                                                         IID_PPV_ARGS(&pipelines_["transparent_gfx_pipe"])));
 }
 
 // Creates descriptor heaps for the resources used by this demo's pipelines.
@@ -716,7 +745,7 @@ void BlendApp::BuildBufferViews()
   materialCb_ = std::make_unique<UploadBuffer<ShaderMaterialCb>>(m_d3dDevice.Get(),
                                                                  2,     // 2 materials in this demo so far.
                                                                  true);
-  
+
   auto heap_handle = CD3DX12_CPU_DESCRIPTOR_HANDLE(descriptorHeap_->GetCPUDescriptorHandleForHeapStart());
 
   // Create a SRV for the texture used in this demo. The texture should have been created by now.
@@ -752,7 +781,7 @@ void BlendApp::BuildRootSignature()
 
    */
   const uint32_t NumRootParams = 3;
-  
+
   CD3DX12_DESCRIPTOR_RANGE tex_table;
   tex_table.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, // Descriptor type.
                  1,                               // Num descriptors.
@@ -764,7 +793,7 @@ void BlendApp::BuildRootSignature()
   root_param[0].InitAsConstantBufferView(0); // cbuf register 0
   root_param[1].InitAsDescriptorTable(1, &tex_table, D3D12_SHADER_VISIBILITY_PIXEL);
   root_param[2].InitAsConstantBufferView(1); // cbuf register 1
-  
+
   CD3DX12_STATIC_SAMPLER_DESC linear_sampler = CD3DX12_STATIC_SAMPLER_DESC(0,
                                                                           D3D12_FILTER_MIN_MAG_MIP_LINEAR,
                                                                           D3D12_TEXTURE_ADDRESS_MODE_WRAP,

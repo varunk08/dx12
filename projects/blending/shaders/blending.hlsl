@@ -11,6 +11,7 @@ cbuffer per_obj_cbuf : register(b0)
 cbuffer material_cbuf : register(b1)
 {
   float4x4 mat_transform;
+  float4   diffuse_albedo;
 };
 
 void VS(float3 in_pos : POSITION,
@@ -29,5 +30,8 @@ void VS(float3 in_pos : POSITION,
 float4 PS(float4 in_pos : SV_POSITION,
           float2 in_texC : TEXCOORD) : SV_TARGET
 {
-  return diffuse_map.Sample(linear_wrap_samp, in_texC);
+  float4 frag_color = diffuse_map.Sample(linear_wrap_samp, in_texC);
+  frag_color.a = diffuse_albedo.a;
+
+  return frag_color;
 }
