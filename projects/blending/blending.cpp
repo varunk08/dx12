@@ -18,6 +18,12 @@ struct PassConstants
   DirectX::XMFLOAT4X4 ViewProj = MathHelper::Identity4x4();
 };
 
+// Represents const buffer that will be used for materials in the shader.
+struct ShaderMaterialCb
+{
+  DirectX::XMFLOAT4X4 mat_transform  = MathHelper::Identity4x4();
+};
+
 // Represents all parameters of a vertex in DirectX compatible formats.
 struct DxVertex
 {
@@ -100,17 +106,27 @@ public:
   MeshData CreateGrid(float width, float depth, uint32_t m, uint32_t n);
 };
 
+// Represents material properties for a single object to be rendered.
+struct MaterialInfo
+{
+  std::string name;
+  int mat_cb_index =-1;
+  int tex_index = -1;
+  DirectX::XMFLOAT4X4 mat_transform = MathHelper::Identity4x4();
+};
+
 // Stores parameters for each item in the scene that will be rendered with a draw call.
 struct RenderObject
 {
   RenderObject() = default;
   XMFLOAT4X4 world = MathHelper::Identity4x4();
+  XMFLOAT4X4 tex_transform = MathHelper::Identity4x4();
   MeshGeometry* pGeo = nullptr;
+  MaterialInfo* pMat = nullptr;
   D3D12_PRIMITIVE_TOPOLOGY primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
   UINT indexCount = 0;
   UINT startIndexLocation = 0;
   UINT baseVertexLocation = 0;
-  UINT texIndex = 0;
 };
 
 // Current demo class to handle user input and to setup demo-specific resource and commands.
@@ -136,6 +152,9 @@ private:
   virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
   virtual void OnKeyDown(WPARAM wparam) override;
 
+  void AnimateMaterials(const BaseTimer& timer);
+  void UpdateMaterials(const BaseTimer& timer);
+  void BuildMaterials();
   void BuildRenderObjects();
   void BuildRootSignature();
   void BuildTerrainGeometry();
@@ -156,7 +175,10 @@ private:
   std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> pipelines_;
   ComPtr<ID3D12DescriptorHeap>                                 descriptorHeap_;
   std::unique_ptr<UploadBuffer<PassConstants>>                 passCb_ = nullptr;     // Stores the MVP matrices etc.
+  std::unique_ptr<UploadBuffer<ShaderMaterialCb>>              materialCb_ = nullptr;
   std::unordered_map<std::string, std::unique_ptr<Texture>>    textures_;
+  std::unordered_map<std::string, std::unique_ptr<MaterialInfo>>   materials;
+  
   // Matrices
   XMFLOAT4X4 view_ = MathHelper::Identity4x4();
   XMFLOAT4X4 proj_ = MathHelper::Identity4x4();
@@ -202,6 +224,7 @@ bool BlendApp::Initialize()
     LoadTextures();
     BuildTerrainGeometry();
     BuildWaterGeometry();
+    BuildMaterials();
     BuildRenderObjects();
     BuildInputLayout();
     BuildShaders();
@@ -247,6 +270,44 @@ void BlendApp::Update(const BaseTimer& timer)
       ThrowIfFailed(m_fence->SetEventOnCompletion(m_currentFence, eventHandle));
       WaitForSingleObject(eventHandle, INFINITE);
       CloseHandle(eventHandle);
+  }
+
+  AnimateMaterials(timer);
+  UpdateMaterials(timer);
+}
+
+// Animates each of the dynamic materials in this demo.
+void BlendApp::AnimateMaterials(const BaseTimer& timer)
+{
+  auto pWater = materials["water"].get();
+  float& tu = pWater->mat_transform(3, 0);
+  float& tv = pWater->mat_transform(3, 1);
+
+  tu += 0.1f * timer.DeltaTimeInSecs();
+  tv += 0.02f * timer.DeltaTimeInSecs();
+
+  if (tu >= 1.0f) {
+    tu -= 1.0f;
+  }
+
+  if (tv  >= 1.0f) {
+    tv -= 1.0f;
+  }
+
+  pWater->mat_transform(3, 0) = tu;
+  pWater->mat_transform(3, 1) = tv;
+}
+
+// Updates material transforms in the material const buffers with the latest transforms.
+void BlendApp::UpdateMaterials(const BaseTimer& timer)
+{
+  for (auto& mat : materials) {
+    MaterialInfo* pMat = mat.second.get();
+    XMMATRIX mat_transform = XMLoadFloat4x4(&pMat->mat_transform);
+
+    ShaderMaterialCb mat_cb = {};
+    XMStoreFloat4x4(&mat_cb.mat_transform, XMMatrixTranspose(mat_transform));
+    materialCb_->CopyData(pMat->mat_cb_index, mat_cb);
   }
 }
 
@@ -295,6 +356,9 @@ void BlendApp::Draw(const BaseTimer& timer)
 
   // Bind the desc heap to the graphics root signature.
   m_commandList->SetGraphicsRootSignature(rootSign_.Get());
+  ID3D12DescriptorHeap* descriptorHeaps[] = { descriptorHeap_.Get() };
+  m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
   m_commandList->SetGraphicsRootConstantBufferView(0, passCb_->Resource()->GetGPUVirtualAddress());
 
   DrawRenderObjects();
@@ -320,15 +384,23 @@ void BlendApp::Draw(const BaseTimer& timer)
 // Submits the draw calls to render each object in the scene.
 void BlendApp::DrawRenderObjects()
 {
+  UINT mat_cb_byte_size = BaseUtil::CalcConstantBufferByteSize(sizeof(ShaderMaterialCb));
+  
   for (auto& render_obj : allRenderObjects) {
+    // Set the vertex/index buffers required for rendering this object.
     m_commandList->IASetVertexBuffers(0, 1, &render_obj->pGeo->VertexBufferView());
     m_commandList->IASetIndexBuffer(&render_obj->pGeo->IndexBufferView());
     m_commandList->IASetPrimitiveTopology(render_obj->primitiveType);
 
+    // Set the material and texture required for this render object.
     CD3DX12_GPU_DESCRIPTOR_HANDLE tex(descriptorHeap_->GetGPUDescriptorHandleForHeapStart());
-    tex.Offset(render_obj->texIndex, m_cbvSrvUavDescriptorSize);
+    tex.Offset(render_obj->pMat->tex_index, m_cbvSrvUavDescriptorSize);
     m_commandList->SetGraphicsRootDescriptorTable(1, tex);
-               
+
+    D3D12_GPU_VIRTUAL_ADDRESS mat_cb_address = materialCb_->Resource()->GetGPUVirtualAddress() +
+                                               (render_obj->pMat->mat_cb_index * mat_cb_byte_size);
+    m_commandList->SetGraphicsRootConstantBufferView(2, mat_cb_address);
+    
     m_commandList->DrawIndexedInstanced(render_obj->indexCount, 1, render_obj->startIndexLocation, render_obj->baseVertexLocation, 0);
   }
 }
@@ -337,6 +409,23 @@ void BlendApp::DrawRenderObjects()
 float BlendApp::GetHillsHeight(float x, float z) const
 {
   return 0.3f * (z * sinf(0.1f * x) + x * cosf(0.1f * z));
+}
+
+// Builds all materials used in this demo.
+void BlendApp::BuildMaterials()
+{
+  auto grass = std::make_unique<MaterialInfo>();
+  grass->name = "grass";
+  grass->mat_cb_index = 0;
+  grass->tex_index = 0;
+
+  auto water = std::make_unique<MaterialInfo>();
+  water->name = "water";
+  water->mat_cb_index =  1;
+  water->tex_index = 1;
+  
+  materials["grass"] = std::move(grass);
+  materials["water"] = std::move(water);
 }
 
 // Function to generate terrain geometry
@@ -463,7 +552,7 @@ void BlendApp::BuildRenderObjects()
   water->indexCount = water->pGeo->drawArgs["water"].indexCount;
   water->startIndexLocation = water->pGeo->drawArgs["water"].startIndexLocation;
   water->baseVertexLocation = water->pGeo->drawArgs["water"].baseVertexLocation;
-  water->texIndex = 1;
+  water->pMat = materials["water"].get();
   
   auto land = std::make_unique<RenderObject>();
   land->world = MathHelper::Identity4x4();
@@ -471,7 +560,7 @@ void BlendApp::BuildRenderObjects()
   land->indexCount = land->pGeo->drawArgs["terrain"].indexCount;
   land->startIndexLocation = land->pGeo->drawArgs["terrain"].startIndexLocation;
   land->baseVertexLocation = land->pGeo->drawArgs["terrain"].baseVertexLocation;
-  land->texIndex = 0;
+  land->pMat = materials["grass"].get();
   
   allRenderObjects.push_back(std::move(water));
   allRenderObjects.push_back(std::move(land));
@@ -624,6 +713,10 @@ void BlendApp::BuildBufferViews()
                                                           1,      // Element count.
                                                           true);  // Is a const buffer?
 
+  materialCb_ = std::make_unique<UploadBuffer<ShaderMaterialCb>>(m_d3dDevice.Get(),
+                                                                 2,     // 2 materials in this demo so far.
+                                                                 true);
+  
   auto heap_handle = CD3DX12_CPU_DESCRIPTOR_HANDLE(descriptorHeap_->GetCPUDescriptorHandleForHeapStart());
 
   // Create a SRV for the texture used in this demo. The texture should have been created by now.
@@ -655,8 +748,11 @@ void BlendApp::BuildRootSignature()
 
     [0] - CBV for the MVP matrix.
     [1] - Descriptor table with, only one range for SRVs for the textures.
+    [2] - CBV for materials.
 
    */
+  const uint32_t NumRootParams = 3;
+  
   CD3DX12_DESCRIPTOR_RANGE tex_table;
   tex_table.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, // Descriptor type.
                  1,                               // Num descriptors.
@@ -664,10 +760,11 @@ void BlendApp::BuildRootSignature()
                  0,                               // Register space.
                  0);                              // Offset from the start of the table.
 
-  CD3DX12_ROOT_PARAMETER root_param[2];
-  root_param[0].InitAsConstantBufferView(0);
+  CD3DX12_ROOT_PARAMETER root_param[NumRootParams];
+  root_param[0].InitAsConstantBufferView(0); // cbuf register 0
   root_param[1].InitAsDescriptorTable(1, &tex_table, D3D12_SHADER_VISIBILITY_PIXEL);
-
+  root_param[2].InitAsConstantBufferView(1); // cbuf register 1
+  
   CD3DX12_STATIC_SAMPLER_DESC linear_sampler = CD3DX12_STATIC_SAMPLER_DESC(0,
                                                                           D3D12_FILTER_MIN_MAG_MIP_LINEAR,
                                                                           D3D12_TEXTURE_ADDRESS_MODE_WRAP,
@@ -675,7 +772,7 @@ void BlendApp::BuildRootSignature()
                                                                           D3D12_TEXTURE_ADDRESS_MODE_WRAP);
   std::array<CD3DX12_STATIC_SAMPLER_DESC, 1> static_samplers = { linear_sampler };
 
-  CD3DX12_ROOT_SIGNATURE_DESC root_sign_desc(2,
+  CD3DX12_ROOT_SIGNATURE_DESC root_sign_desc(NumRootParams,
                                              root_param,
                                              1,
                                              static_samplers.data(),
@@ -793,9 +890,9 @@ Blending demo agenda:
   :- update root signature
 :- Draw Mountains
 - Draw animated water
-  - change code to enable drawing multiple objects
-  - animated grid texture
+  :- change code to enable drawing multiple objects
   - textured animated surface
+  - animated grid texture
   - animate texture in shader
 - Implement lighting
 - Draw a textured crate
