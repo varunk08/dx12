@@ -12,16 +12,37 @@ using namespace std;
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
+// The shader expects lights to be in this format.
+struct ShaderLight
+{
+  DirectX::XMFLOAT3 strength;
+  float fallOffStart;
+  DirectX::XMFLOAT3 direction;
+  float fallOffEnd;
+  DirectX::XMFLOAT3 position;
+  float spotPower;
+};
+
+// Per object const buffer.
+struct ObjectConstants
+{
+  DirectX::XMFLOAT4X4 worldMatrix =  MathHelper::Identity4x4();
+};
+
 // This will be referenced by the shader as a const buffer.
 struct PassConstants
 {
-  DirectX::XMFLOAT4X4 ViewProj = MathHelper::Identity4x4();
+  DirectX::XMFLOAT4X4 viewProj = MathHelper::Identity4x4();
+  DirectX::XMFLOAT3 eyePos = { 0.0f, 0.0f, 0.0f };
+  float padding0;
+  ShaderLight Lights[MaxLights];
 };
 
 // Represents const buffer that will be used for materials in the shader.
 struct ShaderMaterialCb
 {
   DirectX::XMFLOAT4X4 mat_transform  = MathHelper::Identity4x4();
+
   DirectX::XMFLOAT4  diffuse_albedo  = { 1.0f, 1.0f, 1.0f, 1.0f };
 };
 
@@ -251,6 +272,8 @@ bool BlendApp::Initialize()
 // Updates resource state for a frame.
 void BlendApp::Update(const BaseTimer& timer)
 {
+  // Update the pass constants that will be written to the const buffer.
+  // Update the MVP matrix.
    XMFLOAT3 eye_pos = XMFLOAT3(radius_ * sinf(phi_) * cosf(theta_),
                               radius_ * cosf(phi_),
                               radius_ * sinf(phi_) * sinf(theta_));
@@ -263,10 +286,18 @@ void BlendApp::Update(const BaseTimer& timer)
   XMStoreFloat4x4(&view_, view);
 
   XMMATRIX view_proj = XMMatrixMultiply(XMLoadFloat4x4(&view_), XMLoadFloat4x4(&proj_));
+  
   PassConstants pass_const = {};
-  XMStoreFloat4x4(&pass_const.ViewProj, XMMatrixTranspose(view_proj));
-  passCb_->CopyData(0, pass_const);
+  XMStoreFloat4x4(&pass_const.viewProj, XMMatrixTranspose(view_proj));
 
+  // Update the light info.
+  // The scene has only one directional light now.
+  pass_const.Lights[0].direction = { 0.57735f, -0.57735f, 0.57735f };
+  pass_const.Lights[0].strength  = { 0.9f, 0.9f, 0.8f };
+
+  // Copy the data into the constant buffer.
+  passCb_->CopyData(0, pass_const);
+  
   if ((m_currentFence != 0) && (m_fence->GetCompletedValue() < m_currentFence)) {
       HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
       ThrowIfFailed(m_fence->SetEventOnCompletion(m_currentFence, eventHandle));
@@ -427,7 +458,8 @@ void BlendApp::BuildMaterials()
   grass->name = "grass";
   grass->mat_cb_index = 0;
   grass->tex_index = 0;
-
+  grass->diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+  
   auto water = std::make_unique<MaterialInfo>();
   water->name = "water";
   water->mat_cb_index =  1;
@@ -918,14 +950,18 @@ Blending demo agenda:
   :- shader changes required for sampling texture
   :- update root signature
 :- Draw Mountains
-- Draw animated water
+:- Water blends with other elements
+:- Draw animated water
   :- change code to enable drawing multiple objects
+  :- animate texture in shader
   - textured animated surface
-  - animated grid texture
-  - animate texture in shader
+  - animated grid texture - do I want to this?
+- Implement fog
 - Implement lighting
-- Draw a textured crate
-- Water blends with other elements
+  - normals for all the objects
+  - change root signature
+  - compute lighting in the shader
+  - implement diffuse lighting.
 - Frame resources, for rendering one full frame
 - Triple buffering
 
