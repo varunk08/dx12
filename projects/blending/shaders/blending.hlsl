@@ -1,5 +1,5 @@
-const int MaxLights = 16;
-const int NumLights = 1;
+static const int MaxLights = 16;
+static const int NumLights = 1;
 
 // Properties for all 3 kinds of lights - spot, point, directional.
 struct LightProperties
@@ -30,7 +30,7 @@ cbuffer PassConstants : register(b0)
   float3   eyePos;
   float    pad0;
   float4   ambientLight;
-  Light    lights[MaxLights];
+  LightProperties lights[MaxLights];
 };
 
 // Material constants.
@@ -59,7 +59,7 @@ void VS(float3 inPos : POSITION,
 {
   // Transform object to world space.
   float4 posW = mul(float4(inPos, 1.0f), worldTransform);
-  outPosW = posw.xyz;
+  outPosW = posW.xyz;
 
   outNor = mul(inNor, (float3x3)worldTransform);
   
@@ -69,15 +69,26 @@ void VS(float3 inPos : POSITION,
   outTexC = mul(float4(inTex, 0.0f, 1.0f), materialTransform).xy;
 }
 
+// Schlick gives an approximation to Fresnel reflectance (see pg. 233 "Real-Time Rendering 3rd Ed.").
+// R0 = ( (n-1)/(n+1) )^2, where n is the index of refraction.
+float3 SchlickFresnel(float3 R0, float3 normal, float3 lightVec)
+{
+    float cosIncidentAngle = saturate(dot(normal, lightVec));
+
+    float f0 = 1.0f - cosIncidentAngle;
+    float3 reflectPercent = R0 + (1.0f - R0) * (f0 * f0 * f0 * f0 * f0);
+
+    return reflectPercent;
+}
 
 // Lighting functions.
-float3 BlinnPhong(float3 lightStrength, float3  lightVec, float3 normal, float3 toEye, Material mat)
+float3 BlinnPhong(float3 lightStrength, float3  lightVec, float3 normal, float3 toEye, MaterialProperties mat)
 {
-    const float m = mat.Shininess * 256.0f;
+    const float m = mat.shininess * 256.0f;
     float3 halfVec = normalize(toEye + lightVec);
 
     float roughnessFactor = (m + 8.0f) * pow(max(dot(halfVec, normal), 0.0f), m) / 8.0f;
-    float3 fresnelFactor = SchlickFresnel(mat.FresnelR0, halfVec, lightVec);
+    float3 fresnelFactor = SchlickFresnel(mat.fresnelR0, halfVec, lightVec);
 
     float3 specAlbedo = fresnelFactor * roughnessFactor;
 
@@ -88,21 +99,21 @@ float3 BlinnPhong(float3 lightStrength, float3  lightVec, float3 normal, float3 
     return (mat.diffuseAlbedo.rgb + specAlbedo) * lightStrength;
 }
 
-float3 ComputeDirectionalLight(Light light, Material mat, float3 normal, float3 toEye)
+float3 ComputeDirectionalLights(LightProperties light, MaterialProperties mat, float3 normal, float3 toEye)
 {
     // The light vector aims opposite the direction the light rays travel.
-    float3 lightVec = -light.Direction;
+    float3 lightVec = -light.direction;
 
     // Scale light down by Lambert's cosine law.
     float ndotl = max(dot(lightVec, normal), 0.0f);
-    float3 lightStrength = light.Strength * ndotl;
+    float3 lightStrength = light.strength * ndotl;
 
     return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
 }
 
 
-float4 ComputeLighting(Light lights[MaxLights],
-                       Material mat,
+float4 ComputeLighting(LightProperties lights[MaxLights],
+                       MaterialProperties mat,
                        float3 pos,
                        float3 normal,
                        float3 toEye,
@@ -126,7 +137,7 @@ float4 PS(float4 inPosH : SV_POSITION,
           float2 inTexC : TEXCOORD) : SV_TARGET
 {
   float4 fragColor = DiffuseMap.Sample(LinearWrapSampler, inTexC) * diffuseAlbedo;
-  return fragColor;
+
   // Renormalize the normal.
   inNor = normalize(inNor);
 
@@ -137,7 +148,7 @@ float4 PS(float4 inPosH : SV_POSITION,
 
   float3 shadowFactor = 1.0f;
   const float shininess = 1.0f - roughness;
-  Material mat = { fragColor, fresnelR0, shininess };
+  MaterialProperties mat = { fragColor, fresnelR0, shininess };
   
   float4 litColor = ComputeLighting(lights, mat, inPosW, inNor,
                                     toEyeW, shadowFactor);
