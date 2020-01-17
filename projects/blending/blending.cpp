@@ -193,8 +193,9 @@ private:
   void DrawRenderObjects();
   void UpdateObjectConstants();
 
-  float GetHillsHeight(float x, float y) const;
-
+  float GetHillsHeight(float x, float z) const;
+  XMFLOAT3 GetHillsNormal(float x, float z) const;
+  
   std::vector<D3D12_INPUT_ELEMENT_DESC>                          inputLayout_;
   std::unordered_map<std::string, ComPtr<ID3DBlob>>              shaders_;
   ComPtr<ID3D12RootSignature>                                    rootSign_ = nullptr;
@@ -289,7 +290,7 @@ void BlendApp::Update(const BaseTimer& timer)
   XMStoreFloat4x4(&view_, view);
 
   XMMATRIX newViewProj = XMMatrixMultiply(XMLoadFloat4x4(&view_), XMLoadFloat4x4(&proj_));
-  
+
   PassConstants newPassConsts = {};
   newPassConsts.eyePos = eye_pos;
   XMStoreFloat4x4(&newPassConsts.viewProj, XMMatrixTranspose(newViewProj));
@@ -303,7 +304,7 @@ void BlendApp::Update(const BaseTimer& timer)
 
   // Copy the data into the constant buffer.
   passCb_->CopyData(0, newPassConsts);
-  
+
   if ((m_currentFence != 0) && (m_fence->GetCompletedValue() < m_currentFence)) {
       HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
       ThrowIfFailed(m_fence->SetEventOnCompletion(m_currentFence, eventHandle));
@@ -481,12 +482,12 @@ void BlendApp::BuildMaterials()
   grass->name = "grass";
   grass->materialCbIndex = 0;
   grass->diffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-  
+
   auto water = std::make_unique<MaterialInfo>();
   water->name = "water";
   water->materialCbIndex =  1;
   water->diffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 0.5f);
-  
+
   materials["grass"] = std::move(grass);
   materials["water"] = std::move(water);
 }
@@ -508,7 +509,7 @@ void BlendApp::BuildTerrainGeometry()
     auto& p = grid.vertices_[i].position_;
     vertices[i].pos_ = p;
     vertices[i].pos_.y = GetHillsHeight(p.x, p.z);
-    vertices[i].nor_ = grid.vertices_[i].normal_;
+    vertices[i].nor_ = GetHillsNormal(grid.vertices_[i].normal_.x, grid.vertices_[i].normal_.z);
     vertices[i].tex_ = grid.vertices_[i].texC_;
   }
 
@@ -953,6 +954,19 @@ void BlendApp::LoadTextures()
                                                     water_tex->resource_,
                                                     water_tex->uploadHeap_));
   textures_[water_tex->name_] = std::move(water_tex);
+}
+
+// Calculates the updated normals for the generated hill terrain.
+XMFLOAT3 BlendApp::GetHillsNormal(float x, float z) const
+{
+  XMFLOAT3 n( -0.03f * z * cosf(0.1f * x) - 0.3f * cosf(0.1f * z),
+              1.0f,
+              -0.3f * sinf(0.1f * x + 0.03f) * x * sinf(0.1f * z));
+
+  XMVECTOR unitNormal = XMVector3Normalize(XMLoadFloat3(&n));
+  XMStoreFloat3(&n, unitNormal);
+
+  return n;
 }
 
 /**
