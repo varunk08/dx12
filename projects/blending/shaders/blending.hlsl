@@ -136,6 +136,7 @@ float4 PS(float4 inPosH : SV_POSITION,
           float3 inNor  : NORMAL,
           float2 inTexC : TEXCOORD) : SV_TARGET
 {
+
   float4 fragColor = DiffuseMap.Sample(LinearWrapSampler, inTexC) * diffuseAlbedo;
 
   // Renormalize the normal.

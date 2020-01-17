@@ -191,6 +191,7 @@ private:
   void BuildBufferViews();
   void LoadTextures();
   void DrawRenderObjects();
+  void UpdateObjectConstants();
 
   float GetHillsHeight(float x, float y) const;
 
@@ -312,6 +313,18 @@ void BlendApp::Update(const BaseTimer& timer)
 
   AnimateMaterials(timer);
   UpdateMaterials(timer);
+  UpdateObjectConstants();
+}
+
+void BlendApp::UpdateObjectConstants()
+{
+  for (auto& renderObj : allRenderObjects) {
+      ObjectConstants newObjConsts = {};
+      XMMATRIX worldTransform = XMLoadFloat4x4(&renderObj->worldTransform);
+      XMStoreFloat4x4(&newObjConsts.worldMatrix, XMMatrixTranspose(worldTransform));
+
+      objectCb_->CopyData(renderObj->objectCbIndex, newObjConsts);
+  }
 }
 
 // Animates each of the dynamic materials in this demo.
