@@ -12,58 +12,68 @@ using namespace std;
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
+// The vertex shader expects vertex data in this layout.
+struct ShaderVertex
+{
+    XMFLOAT3 pos_;
+    XMFLOAT3 nor_;
+    XMFLOAT2 tex_;
+};
+
 // The shader expects lights to be in this format.
 struct ShaderLight
 {
-  DirectX::XMFLOAT3 strength;
-  float fallOffStart;
-  DirectX::XMFLOAT3 direction;
-  float fallOffEnd;
-  DirectX::XMFLOAT3 position;
-  float spotPower;
+  XMFLOAT3 strength;
+  float    fallOffStart;
+  XMFLOAT3 direction;
+  float    fallOffEnd;
+  XMFLOAT3 position;
+  float    spotPower;
 };
 
 // Per object const buffer.
 struct ObjectConstants
 {
-  DirectX::XMFLOAT4X4 worldMatrix =  MathHelper::Identity4x4();
+  XMFLOAT4X4 worldMatrix = MathHelper::Identity4x4();
 };
 
 // This will be referenced by the shader as a const buffer.
 struct PassConstants
 {
-  DirectX::XMFLOAT4X4 viewProj = MathHelper::Identity4x4();
-  DirectX::XMFLOAT3 eyePos = { 0.0f, 0.0f, 0.0f };
-  float padding0;
-  ShaderLight Lights[MaxLights];
+  XMFLOAT4X4   viewProj = MathHelper::Identity4x4();
+  XMFLOAT3     eyePos = { 0.0f, 0.0f, 0.0f };
+  float        padding0;
+  XMFLOAT4     ambientLight;
+  ShaderLight  lights[MaxLights];
 };
 
 // Represents const buffer that will be used for materials in the shader.
 struct ShaderMaterialCb
 {
-  DirectX::XMFLOAT4X4 mat_transform  = MathHelper::Identity4x4();
-
-  DirectX::XMFLOAT4  diffuse_albedo  = { 1.0f, 1.0f, 1.0f, 1.0f };
+  XMFLOAT4X4 materialTransform  = MathHelper::Identity4x4();
+  XMFLOAT4   diffuseAlbedo  = { 1.0f, 1.0f, 1.0f, 1.0f };
+  XMFLOAT3   fresnelR0 = { 0.01f, 0.01f, 0.01f };
+  float      roughness = 0.25f;
 };
 
 // Represents all parameters of a vertex in DirectX compatible formats.
-struct DxVertex
+struct VertexInfo
 {
-  DxVertex() {}
-  DxVertex(const DirectX::XMFLOAT3& pos,
-           const DirectX::XMFLOAT3& nor,
-           const DirectX::XMFLOAT3& tan,
-           const DirectX::XMFLOAT2& uv)
+  VertexInfo() {}
+  VertexInfo(const DirectX::XMFLOAT3& pos,
+             const DirectX::XMFLOAT3& nor,
+             const DirectX::XMFLOAT3& tan,
+             const DirectX::XMFLOAT2& uv)
     :
     position_(pos),
     normal_(nor),
     tangentU_(tan),
     texC_(uv)
   { }
-  DxVertex(float px, float py, float pz,
-           float nx, float ny, float nz,
-           float tx, float ty, float tz,
-           float u, float v)
+  VertexInfo(float px, float py, float pz,
+             float nx, float ny, float nz,
+             float tx, float ty, float tz,
+             float u, float v)
     :
     position_(px, py, pz),
     normal_(nx, ny, nz),
@@ -75,14 +85,6 @@ struct DxVertex
   DirectX::XMFLOAT3 normal_;
   DirectX::XMFLOAT3 tangentU_;
   DirectX::XMFLOAT2 texC_;
-};
-
-// The vertex shader expects vertex data in this layout.
-struct ShaderVertex
-{
-  DirectX::XMFLOAT3 pos_;
-  DirectX::XMFLOAT3 nor_;
-  DirectX::XMFLOAT2 tex_;
 };
 
 // Represents a complete mesh that can be rendered.
@@ -113,7 +115,7 @@ struct MeshData
     return indices16_;
   }
 
-  std::vector<DxVertex> vertices_;
+  std::vector<VertexInfo> vertices_;
   std::vector<uint32_t> indices32_;
 
 private:
@@ -131,25 +133,25 @@ public:
 // Represents material properties for a single object to be rendered.
 struct MaterialInfo
 {
-  std::string name;
-  int mat_cb_index =-1;
-  int tex_index = -1;
-  DirectX::XMFLOAT4X4 mat_transform = MathHelper::Identity4x4();
-  DirectX::XMFLOAT4  diffuse_albedo  = { 1.0f, 1.0f, 1.0f, 1.0f };
+  string     name;
+  int        materialCbIndex = -1;
+  XMFLOAT4X4 materialTransform = MathHelper::Identity4x4();
+  XMFLOAT4   diffuseAlbedo  = { 1.0f, 1.0f, 1.0f, 1.0f };
 };
 
 // Stores parameters for each item in the scene that will be rendered with a draw call.
 struct RenderObject
 {
   RenderObject() = default;
-  XMFLOAT4X4 world = MathHelper::Identity4x4();
-  XMFLOAT4X4 tex_transform = MathHelper::Identity4x4();
-  MeshGeometry* pGeo = nullptr;
-  MaterialInfo* pMat = nullptr;
+  XMFLOAT4X4               worldTransform = MathHelper::Identity4x4();
+  XMFLOAT4X4               texTransform = MathHelper::Identity4x4();
+  MeshGeometry*            pGeo = nullptr;
+  MaterialInfo*            pMat = nullptr;
   D3D12_PRIMITIVE_TOPOLOGY primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-  UINT indexCount = 0;
-  UINT startIndexLocation = 0;
-  UINT baseVertexLocation = 0;
+  UINT                     indexCount = 0;
+  UINT                     startIndexLocation = 0;
+  UINT                     baseVertexLocation = 0;
+  int                      objectCbIndex = -1;
 };
 
 // Current demo class to handle user input and to setup demo-specific resource and commands.
@@ -192,31 +194,32 @@ private:
 
   float GetHillsHeight(float x, float y) const;
 
-  std::vector<D3D12_INPUT_ELEMENT_DESC>                        inputLayout_;
-  std::unordered_map<std::string, ComPtr<ID3DBlob>>            shaders_;
-  ComPtr<ID3D12RootSignature>                                  rootSign_ = nullptr;
-  std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> pipelines_;
-  ComPtr<ID3D12DescriptorHeap>                                 descriptorHeap_;
-  std::unique_ptr<UploadBuffer<PassConstants>>                 passCb_ = nullptr;     // Stores the MVP matrices etc.
-  std::unique_ptr<UploadBuffer<ShaderMaterialCb>>              materialCb_ = nullptr;
-  std::unordered_map<std::string, std::unique_ptr<Texture>>    textures_;
-  std::unordered_map<std::string, std::unique_ptr<MaterialInfo>>   materials;
+  std::vector<D3D12_INPUT_ELEMENT_DESC>                          inputLayout_;
+  std::unordered_map<std::string, ComPtr<ID3DBlob>>              shaders_;
+  ComPtr<ID3D12RootSignature>                                    rootSign_ = nullptr;
+  std::unordered_map<std::string, ComPtr<ID3D12PipelineState>>   pipelines_;
+  ComPtr<ID3D12DescriptorHeap>                                   descriptorHeap_;
+  std::unique_ptr<UploadBuffer<PassConstants>>                   passCb_ = nullptr;     // Stores the MVP matrices etc.
+  std::unique_ptr<UploadBuffer<ShaderMaterialCb>>                materialCb_ = nullptr;
+  std::unique_ptr<UploadBuffer<ObjectConstants>>                 objectCb_ = nullptr;
+  std::unordered_map<std::string, std::unique_ptr<Texture>>      textures_;
+  std::unordered_map<std::string, std::unique_ptr<MaterialInfo>> materials;
 
   // Matrices
-  XMFLOAT4X4 view_ = MathHelper::Identity4x4();
-  XMFLOAT4X4 proj_ = MathHelper::Identity4x4();
+  XMFLOAT4X4                                                     view_ = MathHelper::Identity4x4();
+  XMFLOAT4X4                                                     proj_ = MathHelper::Identity4x4();
 
   // Geometries to draw.
   std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> geometries;
 
   // Objects to be rendered in a scene.
-  std::vector<std::unique_ptr<RenderObject>>                    allRenderObjects;
+  std::vector<std::unique_ptr<RenderObject>>                     allRenderObjects;
 
   // Mouse parameters.
-  POINT lastMousePos_;
-  float radius_ = 200.0f;
-  float phi_    = 0.2f * XM_PI;
-  float theta_  = 1.5f * XM_PI;
+  POINT                                                          lastMousePos_ = { 0, 0 };
+  float                                                          radius_ = 200.0f;
+  float                                                          phi_    = 0.2f * XM_PI;
+  float                                                          theta_  = 1.5f * XM_PI;
 };
 
 // Demo constructor.
@@ -275,28 +278,30 @@ void BlendApp::Update(const BaseTimer& timer)
   // Update the pass constants that will be written to the const buffer.
   // Update the MVP matrix.
    XMFLOAT3 eye_pos = XMFLOAT3(radius_ * sinf(phi_) * cosf(theta_),
-                              radius_ * cosf(phi_),
-                              radius_ * sinf(phi_) * sinf(theta_));
+                               radius_ * cosf(phi_),
+                               radius_ * sinf(phi_) * sinf(theta_));
 
-  XMVECTOR pos = XMVectorSet(eye_pos.x, eye_pos.y, eye_pos.z, 1.0f);
+  XMVECTOR pos    = XMVectorSet(eye_pos.x, eye_pos.y, eye_pos.z, 1.0f);
   XMVECTOR target = XMVectorZero();
-  XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-
+  XMVECTOR up     = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
   XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
   XMStoreFloat4x4(&view_, view);
 
-  XMMATRIX view_proj = XMMatrixMultiply(XMLoadFloat4x4(&view_), XMLoadFloat4x4(&proj_));
+  XMMATRIX newViewProj = XMMatrixMultiply(XMLoadFloat4x4(&view_), XMLoadFloat4x4(&proj_));
   
-  PassConstants pass_const = {};
-  XMStoreFloat4x4(&pass_const.viewProj, XMMatrixTranspose(view_proj));
+  PassConstants newPassConsts = {};
+  newPassConsts.eyePos = eye_pos;
+  XMStoreFloat4x4(&newPassConsts.viewProj, XMMatrixTranspose(newViewProj));
 
   // Update the light info.
+  newPassConsts.ambientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+
   // The scene has only one directional light now.
-  pass_const.Lights[0].direction = { 0.57735f, -0.57735f, 0.57735f };
-  pass_const.Lights[0].strength  = { 0.9f, 0.9f, 0.8f };
+  newPassConsts.lights[0].direction = { 0.57735f, -0.57735f, 0.57735f };
+  newPassConsts.lights[0].strength  = { 0.9f, 0.9f, 0.8f };
 
   // Copy the data into the constant buffer.
-  passCb_->CopyData(0, pass_const);
+  passCb_->CopyData(0, newPassConsts);
   
   if ((m_currentFence != 0) && (m_fence->GetCompletedValue() < m_currentFence)) {
       HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
@@ -313,8 +318,8 @@ void BlendApp::Update(const BaseTimer& timer)
 void BlendApp::AnimateMaterials(const BaseTimer& timer)
 {
   auto pWater = materials["water"].get();
-  float& tu = pWater->mat_transform(3, 0);
-  float& tv = pWater->mat_transform(3, 1);
+  float& tu = pWater->materialTransform(3, 0);
+  float& tv = pWater->materialTransform(3, 1);
 
   tu += 0.1f * timer.DeltaTimeInSecs();
   tv += 0.02f * timer.DeltaTimeInSecs();
@@ -327,8 +332,8 @@ void BlendApp::AnimateMaterials(const BaseTimer& timer)
     tv -= 1.0f;
   }
 
-  pWater->mat_transform(3, 0) = tu;
-  pWater->mat_transform(3, 1) = tv;
+  pWater->materialTransform(3, 0) = tu;
+  pWater->materialTransform(3, 1) = tv;
 }
 
 // Updates material transforms in the material const buffers with the latest transforms.
@@ -336,12 +341,12 @@ void BlendApp::UpdateMaterials(const BaseTimer& timer)
 {
   for (auto& mat : materials) {
     MaterialInfo* pMat = mat.second.get();
-    XMMATRIX mat_transform = XMLoadFloat4x4(&pMat->mat_transform);
+    XMMATRIX mat_transform = XMLoadFloat4x4(&pMat->materialTransform);
 
     ShaderMaterialCb mat_cb = {};
-    mat_cb.diffuse_albedo = pMat->diffuse_albedo;
-    XMStoreFloat4x4(&mat_cb.mat_transform, XMMatrixTranspose(mat_transform));
-    materialCb_->CopyData(pMat->mat_cb_index, mat_cb);
+    mat_cb.diffuseAlbedo = pMat->diffuseAlbedo;
+    XMStoreFloat4x4(&mat_cb.materialTransform, XMMatrixTranspose(mat_transform));
+    materialCb_->CopyData(pMat->materialCbIndex, mat_cb);
   }
 }
 
@@ -419,6 +424,7 @@ void BlendApp::Draw(const BaseTimer& timer)
 void BlendApp::DrawRenderObjects()
 {
   UINT mat_cb_byte_size = BaseUtil::CalcConstantBufferByteSize(sizeof(ShaderMaterialCb));
+  UINT objectCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
 
   for (auto& render_obj : allRenderObjects) {
     // Set the vertex/index buffers required for rendering this object.
@@ -428,12 +434,16 @@ void BlendApp::DrawRenderObjects()
 
     // Set the material and texture required for this render object.
     CD3DX12_GPU_DESCRIPTOR_HANDLE tex(descriptorHeap_->GetGPUDescriptorHandleForHeapStart());
-    tex.Offset(render_obj->pMat->tex_index, m_cbvSrvUavDescriptorSize);
+    tex.Offset(render_obj->pMat->materialCbIndex, m_cbvSrvUavDescriptorSize);
     m_commandList->SetGraphicsRootDescriptorTable(1, tex);
 
     D3D12_GPU_VIRTUAL_ADDRESS mat_cb_address = materialCb_->Resource()->GetGPUVirtualAddress() +
-                                               (render_obj->pMat->mat_cb_index * mat_cb_byte_size);
+                                               (render_obj->pMat->materialCbIndex * mat_cb_byte_size);
     m_commandList->SetGraphicsRootConstantBufferView(2, mat_cb_address);
+
+    D3D12_GPU_VIRTUAL_ADDRESS objCbAddress = objectCb_->Resource()->GetGPUVirtualAddress() +
+                                             (render_obj->objectCbIndex * objectCbByteSize);
+    m_commandList->SetGraphicsRootConstantBufferView(3, objCbAddress);
 
     m_commandList->DrawIndexedInstanced(render_obj->indexCount,
                                         1,
@@ -456,15 +466,13 @@ void BlendApp::BuildMaterials()
 {
   auto grass = std::make_unique<MaterialInfo>();
   grass->name = "grass";
-  grass->mat_cb_index = 0;
-  grass->tex_index = 0;
-  grass->diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+  grass->materialCbIndex = 0;
+  grass->diffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
   
   auto water = std::make_unique<MaterialInfo>();
   water->name = "water";
-  water->mat_cb_index =  1;
-  water->tex_index = 1;
-  water->diffuse_albedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 0.5f);
+  water->materialCbIndex =  1;
+  water->diffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 0.5f);
   
   materials["grass"] = std::move(grass);
   materials["water"] = std::move(water);
@@ -589,20 +597,22 @@ void BlendApp::BuildWaterGeometry()
 void BlendApp::BuildRenderObjects()
 {
   auto water = std::make_unique<RenderObject>();
-  water->world = MathHelper::Identity4x4();
+  water->worldTransform = MathHelper::Identity4x4(); // We're not transforming the object.
   water->pGeo = geometries["water"].get();
   water->indexCount = water->pGeo->drawArgs["water"].indexCount;
   water->startIndexLocation = water->pGeo->drawArgs["water"].startIndexLocation;
   water->baseVertexLocation = water->pGeo->drawArgs["water"].baseVertexLocation;
   water->pMat = materials["water"].get();
+  water->objectCbIndex = 1;
 
   auto land = std::make_unique<RenderObject>();
-  land->world = MathHelper::Identity4x4();
+  land->worldTransform = MathHelper::Identity4x4();
   land->pGeo = geometries["terrain"].get();
   land->indexCount = land->pGeo->drawArgs["terrain"].indexCount;
   land->startIndexLocation = land->pGeo->drawArgs["terrain"].startIndexLocation;
   land->baseVertexLocation = land->pGeo->drawArgs["terrain"].baseVertexLocation;
   land->pMat = materials["grass"].get();
+  land->objectCbIndex = 0;
 
   allRenderObjects.push_back(std::move(land));
   allRenderObjects.push_back(std::move(water));
@@ -756,7 +766,7 @@ void BlendApp::BuildPipelines()
 // Creates descriptor heaps for the resources used by this demo's pipelines.
 void BlendApp::BuildDescriptorHeaps()
 {
-  // Create a single const-buf-view heap for the world view proj matrix for the simple case.
+  // Create heap for SRVs for textures used in this demo.
   D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc;
   srv_heap_desc.NumDescriptors = 2; // 2 SRVs for textures so far in this demo.
   srv_heap_desc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -774,9 +784,14 @@ void BlendApp::BuildBufferViews()
                                                           1,      // Element count.
                                                           true);  // Is a const buffer?
 
+  const uint32_t NumObjects = 2; // There are only these many objects in this demo.
+
   materialCb_ = std::make_unique<UploadBuffer<ShaderMaterialCb>>(m_d3dDevice.Get(),
-                                                                 2,     // 2 materials in this demo so far.
+                                                                 NumObjects,     // 2 materials in this demo so far.
                                                                  true);
+  objectCb_ = make_unique<UploadBuffer<ObjectConstants>>(m_d3dDevice.Get(),
+                                                         NumObjects,
+                                                         true);
 
   auto heap_handle = CD3DX12_CPU_DESCRIPTOR_HANDLE(descriptorHeap_->GetCPUDescriptorHandleForHeapStart());
 
@@ -807,12 +822,13 @@ void BlendApp::BuildRootSignature()
 {
   /* My root signature:
 
-    [0] - CBV for the MVP matrix.
+    [0] - CBV for pass constants (view-projection matrix, eye-pos etc).
     [1] - Descriptor table with, only one range for SRVs for the textures.
-    [2] - CBV for materials.
+    [2] - CBV for materials (diffuseAlbedo, roughness, material transform etc).
+    [3] - CBV for per-object properties (world transform).
 
    */
-  const uint32_t NumRootParams = 3;
+  const uint32_t NumRootParams = 4;
 
   CD3DX12_DESCRIPTOR_RANGE tex_table;
   tex_table.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, // Descriptor type.
@@ -825,6 +841,7 @@ void BlendApp::BuildRootSignature()
   root_param[0].InitAsConstantBufferView(0); // cbuf register 0
   root_param[1].InitAsDescriptorTable(1, &tex_table, D3D12_SHADER_VISIBILITY_PIXEL);
   root_param[2].InitAsConstantBufferView(1); // cbuf register 1
+  root_param[3].InitAsConstantBufferView(2); // cbuf register 2
 
   CD3DX12_STATIC_SAMPLER_DESC linear_sampler = CD3DX12_STATIC_SAMPLER_DESC(0,
                                                                           D3D12_FILTER_MIN_MAG_MIP_LINEAR,
