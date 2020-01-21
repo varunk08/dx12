@@ -188,7 +188,7 @@ float4 PS(float4 inPosH : SV_POSITION,
   
   float4 litColor = ComputeLighting(lights, mat, inPosW, inNor,
                                     toEyeW, shadowFactor);
-  litColor += ambientLight;
+  //litColor += ambientLight;
   
   litColor.a = diffuseAlbedo.a;
 

@@ -513,7 +513,7 @@ void BlendApp::BuildTerrainGeometry()
     auto& p = grid.vertices_[i].position_;
     vertices[i].pos_ = p;
     vertices[i].pos_.y = GetHillsHeight(p.x, p.z);
-    vertices[i].nor_ = GetHillsNormal(grid.vertices_[i].normal_.x, grid.vertices_[i].normal_.z);
+    vertices[i].nor_ = GetHillsNormal(p.x, p.z);
     vertices[i].tex_ = grid.vertices_[i].texC_;
   }
 
@@ -965,7 +965,7 @@ XMFLOAT3 BlendApp::GetHillsNormal(float x, float z) const
 {
   XMFLOAT3 n( -0.03f * z * cosf(0.1f * x) - 0.3f * cosf(0.1f * z),
               1.0f,
-              -0.3f * sinf(0.1f * x + 0.03f) * x * sinf(0.1f * z));
+              -0.3f * sinf(0.1f * x) + 0.03f * x * sinf(0.1f * z));
 
   XMVECTOR unitNormal = XMVector3Normalize(XMLoadFloat3(&n));
   XMStoreFloat3(&n, unitNormal);
