@@ -182,13 +182,14 @@ float4 PS(float4 inPosH : SV_POSITION,
   float distToEye = length(toEyeW);
   toEyeW /= distToEye;
 
+  float ambient = ambientLight * fragColor;
   float3 shadowFactor = 1.0f;
   const float shininess = 1.0f - roughness;
   MaterialProperties mat = { fragColor, fresnelR0, shininess };
   
   float4 litColor = ComputeLighting(lights, mat, inPosW, inNor,
                                     toEyeW, shadowFactor);
-  //litColor += ambientLight;
+  litColor += ambient;
   
   litColor.a = diffuseAlbedo.a;
 
