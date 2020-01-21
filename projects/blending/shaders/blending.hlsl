@@ -1,5 +1,7 @@
 static const int MaxLights = 16;
-static const int NumLights = 1;
+static const int NumLights = 3;
+static const int NumDirLights = 3;
+static const int  NumPointLights = 0;
 
 // Properties for all 3 kinds of lights - spot, point, directional.
 struct LightProperties
@@ -69,6 +71,11 @@ void VS(float3 inPos : POSITION,
   outTexC = mul(float4(inTex, 0.0f, 1.0f), materialTransform).xy;
 }
 
+float CalcAttenuation(float d, float startFallOff, float endFallOff)
+{
+  return saturate((startFallOff - d) / (endFallOff - startFallOff));
+}
+ 
 // Schlick gives an approximation to Fresnel reflectance (see pg. 233 "Real-Time Rendering 3rd Ed.").
 // R0 = ( (n-1)/(n+1) )^2, where n is the index of refraction.
 float3 SchlickFresnel(float3 R0, float3 normal, float3 lightVec)
@@ -81,7 +88,7 @@ float3 SchlickFresnel(float3 R0, float3 normal, float3 lightVec)
     return reflectPercent;
 }
 
-// Lighting functions.
+// Blinn phong for diffuse lighting.
 float3 BlinnPhong(float3 lightStrength, float3  lightVec, float3 normal, float3 toEye, MaterialProperties mat)
 {
     const float m = mat.shininess * 256.0f;
@@ -99,6 +106,7 @@ float3 BlinnPhong(float3 lightStrength, float3  lightVec, float3 normal, float3 
     return (mat.diffuseAlbedo.rgb + specAlbedo) * lightStrength;
 }
 
+// Main diffuse lighting calculation function.
 float3 ComputeDirectionalLights(LightProperties light, MaterialProperties mat, float3 normal, float3 toEye)
 {
     // The light vector aims opposite the direction the light rays travel.
@@ -111,7 +119,30 @@ float3 ComputeDirectionalLights(LightProperties light, MaterialProperties mat, f
     return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
 }
 
+// Main point light calculation function.
+float3 ComputePointLight(LightProperties light,
+                         MaterialProperties mat,
+                         float3 pos,
+                         float3 normal,
+                         float3 toEye)
+{
+  float3 lightVec = light.position - pos;
+  float d = length(lightVec);
 
+  if (d > light.fallOffEnd) {
+    return 0.0f;
+  }
+
+  lightVec /= d;
+  float nDotL = max(dot(lightVec, normal), 0.0f);
+  float3 lightStrength = light.strength * nDotL;
+  float att = CalcAttenuation(d, light.fallOffStart, light.fallOffEnd);
+  lightStrength *= att;
+  
+  return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
+}
+
+// Main light computation function.
 float4 ComputeLighting(LightProperties lights[MaxLights],
                        MaterialProperties mat,
                        float3 pos,
@@ -123,8 +154,12 @@ float4 ComputeLighting(LightProperties lights[MaxLights],
   int    i = 0;
   
   // Only directional lights for now.
-  for (i = 0; i < NumLights; ++i) {
+  for (i = 0; i < NumDirLights; ++i) {
     result += shadowFactor[i] * ComputeDirectionalLights(lights[i], mat, normal, toEye);
+  }
+
+  for (; i < NumPointLights; ++i) {
+    result += ComputePointLight(lights[i], mat, pos, normal, toEye);
   }
 
   return float4(result, 0.0f);
@@ -153,7 +188,8 @@ float4 PS(float4 inPosH : SV_POSITION,
   
   float4 litColor = ComputeLighting(lights, mat, inPosW, inNor,
                                     toEyeW, shadowFactor);
-
+  litColor += ambientLight;
+  
   litColor.a = diffuseAlbedo.a;
 
   return litColor;

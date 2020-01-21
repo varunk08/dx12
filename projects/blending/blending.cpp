@@ -301,6 +301,10 @@ void BlendApp::Update(const BaseTimer& timer)
   // The scene has only one directional light now.
   newPassConsts.lights[0].direction = { 0.57735f, -0.57735f, 0.57735f };
   newPassConsts.lights[0].strength  = { 0.9f, 0.9f, 0.8f };
+  newPassConsts.lights[1].direction = { -0.57735f, -0.57735f, 0.57735f };
+  newPassConsts.lights[1].strength  = { 0.3f, 0.3f, 0.3f };
+  newPassConsts.lights[2].direction = { 0.0f, -0.707f, -0.707f };
+  newPassConsts.lights[2].strength  = { 0.15f, 0.15f, 0.15f };
 
   // Copy the data into the constant buffer.
   passCb_->CopyData(0, newPassConsts);
@@ -980,7 +984,7 @@ Blending demo agenda:
   :- create pipeline
   :- write vertex and pixel shaders
   :- create descriptors
-  :- create const buffer view for the world view proj matrix
+  :- create const buffer view for the world view proj matrix 
   :- create root signature
   :- upload constant buffers
   :- Compile shaders
@@ -1002,10 +1006,11 @@ Blending demo agenda:
   - animated grid texture - do I want to this?
 - Implement fog
 - Implement lighting
+  :- change root signature
+  :- implement diffuse lighting.
+  - implement specular lighting.
   - normals for all the objects
-  - change root signature
   - compute lighting in the shader
-  - implement diffuse lighting.
 - Frame resources, for rendering one full frame
 - Triple buffering
 
