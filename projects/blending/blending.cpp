@@ -195,7 +195,7 @@ private:
 
   float GetHillsHeight(float x, float z) const;
   XMFLOAT3 GetHillsNormal(float x, float z) const;
-  
+
   std::vector<D3D12_INPUT_ELEMENT_DESC>                          inputLayout_;
   std::unordered_map<std::string, ComPtr<ID3DBlob>>              shaders_;
   ComPtr<ID3D12RootSignature>                                    rootSign_ = nullptr;
@@ -984,7 +984,7 @@ Blending demo agenda:
   :- create pipeline
   :- write vertex and pixel shaders
   :- create descriptors
-  :- create const buffer view for the world view proj matrix 
+  :- create const buffer view for the world view proj matrix
   :- create root signature
   :- upload constant buffers
   :- Compile shaders
@@ -1009,8 +1009,6 @@ Blending demo agenda:
   :- change root signature
   :- implement diffuse lighting.
   - implement specular lighting.
-  - normals for all the objects
-  - compute lighting in the shader
 - Frame resources, for rendering one full frame
 - Triple buffering
 
