@@ -32,6 +32,10 @@ cbuffer PassConstants : register(b0)
   float3   eyePos;
   float    pad0;
   float4   ambientLight;
+  float4   fogColor;
+  float    fogStart;
+  float    fogRange;
+  float2   pad1;
   LightProperties lights[MaxLights];
 };
 
@@ -190,6 +194,11 @@ float4 PS(float4 inPosH : SV_POSITION,
   float4 litColor = ComputeLighting(lights, mat, inPosW, inNor,
                                     toEyeW, shadowFactor);
   litColor += ambient;
+
+#ifdef FOG
+  float fogAmount = saturate((distToEye - fogStart) / fogRange);
+  litColor = lerp(litColor, fogColor, fogAmount);
+#endif
   
   litColor.a = diffuseAlbedo.a;
 

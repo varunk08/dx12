@@ -44,6 +44,10 @@ struct PassConstants
   XMFLOAT3     eyePos = { 0.0f, 0.0f, 0.0f };
   float        padding0;
   XMFLOAT4     ambientLight;
+  XMFLOAT4     fogColor;
+  float        fogStart;
+  float        fogRange;
+  float        padding1;
   ShaderLight  lights[MaxLights];
 };
 
@@ -219,8 +223,8 @@ private:
 
   // Mouse parameters.
   POINT                                                          lastMousePos_ = { 0, 0 };
-  float                                                          radius_ = 200.0f;
-  float                                                          phi_    = 0.2f * XM_PI;
+  float                                                          radius_ = 100.0f;
+  float                                                          phi_    = 0.3f * XM_PI;
   float                                                          theta_  = 1.5f * XM_PI;
 };
 
@@ -297,6 +301,9 @@ void BlendApp::Update(const BaseTimer& timer)
 
   // Update the light info.
   newPassConsts.ambientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+  newPassConsts.fogColor = { 0.8f, 0.8f, 0.8f, 1.0f };
+  newPassConsts.fogStart = 100.0f;
+  newPassConsts.fogRange = 300.0f;
 
   // The scene has only one directional light now.
   newPassConsts.lights[0].direction = { 0.57735f, -0.57735f, 0.57735f };
@@ -396,7 +403,7 @@ void BlendApp::Draw(const BaseTimer& timer)
 
   // Clear the render target and depth stencil buffers.
   m_commandList->ClearRenderTargetView(CurrentBackBufferView(),
-                                       DirectX::Colors::Indigo,
+                                       DirectX::Colors::DarkGray,
                                        0,
                                        nullptr);
   m_commandList->ClearDepthStencilView(DepthStencilView(),
@@ -650,8 +657,15 @@ void BlendApp::BuildInputLayout()
 // Builds shaders needed for this demo.
 void BlendApp::BuildShaders()
 {
+  // Shader define for fog.
+  const D3D_SHADER_MACRO defines[] =
+    {
+     "FOG", "1",
+      NULL, NULL
+    };
+
   shaders_["std_vs"] = BaseUtil::CompileShader(L"shaders\\blending.hlsl", nullptr, "VS", "vs_5_1");
-  shaders_["std_ps"] = BaseUtil::CompileShader(L"shaders\\blending.hlsl", nullptr, "PS", "ps_5_1");
+  shaders_["std_ps"] = BaseUtil::CompileShader(L"shaders\\blending.hlsl", defines, "PS", "ps_5_1");
 }
 
 // Windows main function to setup and go into Run() loop.
