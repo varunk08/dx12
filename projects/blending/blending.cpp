@@ -47,7 +47,7 @@ struct PassConstants
   XMFLOAT4     fogColor;
   float        fogStart;
   float        fogRange;
-  float        padding1;
+  XMFLOAT2     padding1;
   ShaderLight  lights[MaxLights];
 };
 
@@ -301,7 +301,7 @@ void BlendApp::Update(const BaseTimer& timer)
 
   // Update the light info.
   newPassConsts.ambientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
-  newPassConsts.fogColor = { 0.8f, 0.8f, 0.8f, 1.0f };
+  XMStoreFloat4(&newPassConsts.fogColor, DirectX::Colors::LightGray);
   newPassConsts.fogStart = 100.0f;
   newPassConsts.fogRange = 300.0f;
 
@@ -403,7 +403,7 @@ void BlendApp::Draw(const BaseTimer& timer)
 
   // Clear the render target and depth stencil buffers.
   m_commandList->ClearRenderTargetView(CurrentBackBufferView(),
-                                       DirectX::Colors::DarkGray,
+                                       DirectX::Colors::LightGray,
                                        0,
                                        nullptr);
   m_commandList->ClearDepthStencilView(DepthStencilView(),
