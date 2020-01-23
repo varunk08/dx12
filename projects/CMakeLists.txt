@@ -25,6 +25,7 @@ set (PROJECTS
      shapes
      shapes_shaded
 	 texturing
-     blending)
+     blending
+     stenciling)
 
 buildAllProjects()
