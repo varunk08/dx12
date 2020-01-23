@@ -1018,11 +1018,11 @@ Blending demo agenda:
   :- animate texture in shader
   - textured animated surface
   - animated grid texture - do I want to this?
-- Implement fog
-- Implement lighting
+:- Implement fog
+:- Implement lighting
   :- change root signature
   :- implement diffuse lighting.
-  - implement specular lighting.
+  :- implement specular lighting - scene doesn't have any specular lighting though.
 - Frame resources, for rendering one full frame
 - Triple buffering
 
