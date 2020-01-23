@@ -38,7 +38,7 @@ InitD3dApp::~InitD3dApp()
 bool InitD3dApp::Initialize()
 {
     bool result = true;
-    
+
     result = InitMainWindow();
     if (result == true)
     {
