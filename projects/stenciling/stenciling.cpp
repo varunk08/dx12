@@ -4,6 +4,24 @@
 
 using namespace std;
 
+// CBs that the shaders need.
+struct PassCb
+{
+};
+
+struct MaterialCb
+{
+};
+
+struct ObjectCb
+{
+};
+
+// Objects used by the demo to manage resources.
+struct MaterialInfo
+{
+};
+  
 // Our stenciling demo app, derived from the BaseApp ofcourse.
 class StencilDemo final : public BaseApp
 {
@@ -23,32 +41,67 @@ public:
   // Destructor.
   ~StencilDemo()
   {
-    if (m_d3dDevice != nullptr)
-      {
+    if (m_d3dDevice != nullptr) {
         FlushCommandQueue();
-      }
+    }
   }
   
   virtual void OnResize()override
   {}
   
   virtual void Update(const BaseTimer& gt)override{}
-  virtual void Draw(const BaseTimer& gt)override{}
+
+  virtual void Draw(const BaseTimer& gt)override
+  {
+  }
 
   virtual void OnMouseDown(WPARAM btnState, int x, int y)override{}
   virtual void OnMouseUp(WPARAM btnState, int x, int y)override{}
   virtual void OnMouseMove(WPARAM btnState, int x, int y)override{}
 
+  void LoadTextures()
+  {
+  }
+  void BuildGeometry()
+  {
+
+  }
+
+  void BuildRenderItems()
+  {
+  }
+  void BuildMaterials()
+  {
+  }
+  void BuildShadersAndInputLayout()
+  {
+  }
+  
+  void BuildPipelines()
+  {
+    BuildShadersAndInputLayout();
+  }
+  
   virtual bool Initialize() override
   {
-    bool result = true;
+    // Initializes main window and d3d.
+    bool result = BaseApp::Initialize();
 
+    if (result == true) {
+      LoadTextures();
+      BuildGeometry();
+      BuildMaterials();
+      BuildPipelines();
+      BuildRenderItems();
+    }
+    
     return result;
   }
 
-
+  // Member variables.
   
-};
+  
+}; // Class StencilDemo
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR cmdLine, int showCmd)
 {
