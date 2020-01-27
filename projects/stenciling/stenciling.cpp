@@ -1,14 +1,111 @@
 #include <iostream>
 #include <vector>
+#include <array>
 #include "DirectXColors.h"
-#include "BaseApp.h"
+#include "../common/BaseUtil.h"
+#include "../common/BaseApp.h"
+#include "../common/GeometryGenerator.h"
+#include "../common/UploadBuffer.h"
 
+using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
+
+enum class RenderLayer : int
+{
+    Opaque = 0,
+    Mirrors,
+    Reflected,
+    Transparent,
+    Shadow,
+    Count
+};
+
+struct ShaderVertex
+{
+    ShaderVertex() = default;
+    ShaderVertex(float x, float y, float z, float nx, float ny, float nz, float u, float v) :
+        Pos(x, y, z),
+        Normal(nx, ny, nz),
+        TexC(u, v) {}
+
+    DirectX::XMFLOAT3 Pos;
+    DirectX::XMFLOAT3 Normal;
+    DirectX::XMFLOAT2 TexC;
+};
+
+const std::array<ShaderVertex, 20> vertices =
+{
+    // Floor: Observe we tile texture coordinates.
+    ShaderVertex(-3.5f, 0.0f, -10.0f, 0.0f, 1.0f, 0.0f, 0.0f, 4.0f), // 0 
+    ShaderVertex(-3.5f, 0.0f,   0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f),
+    ShaderVertex(7.5f, 0.0f,   0.0f, 0.0f, 1.0f, 0.0f, 4.0f, 0.0f),
+    ShaderVertex(7.5f, 0.0f, -10.0f, 0.0f, 1.0f, 0.0f, 4.0f, 4.0f),
+
+    // Wall: Observe we tile texture coordinates, and that we
+    // leave a gap in the middle for the mirror.
+    ShaderVertex(-3.5f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 2.0f), // 4
+    ShaderVertex(-3.5f, 4.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f),
+    ShaderVertex(-2.5f, 4.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.5f, 0.0f),
+    ShaderVertex(-2.5f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.5f, 2.0f),
+
+    ShaderVertex(2.5f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 2.0f), // 8 
+    ShaderVertex(2.5f, 4.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f),
+    ShaderVertex(7.5f, 4.0f, 0.0f, 0.0f, 0.0f, -1.0f, 2.0f, 0.0f),
+    ShaderVertex(7.5f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 2.0f, 2.0f),
+
+    ShaderVertex(-3.5f, 4.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f), // 12
+    ShaderVertex(-3.5f, 6.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f),
+    ShaderVertex(7.5f, 6.0f, 0.0f, 0.0f, 0.0f, -1.0f, 6.0f, 0.0f),
+    ShaderVertex(7.5f, 4.0f, 0.0f, 0.0f, 0.0f, -1.0f, 6.0f, 1.0f),
+
+    // Mirror
+    ShaderVertex(-2.5f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f), // 16
+    ShaderVertex(-2.5f, 4.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f),
+    ShaderVertex(2.5f, 4.0f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f),
+    ShaderVertex(2.5f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f, 1.0f)
+};
+
+const std::array<std::int16_t, 30> indices =
+{
+    // Floor
+    0, 1, 2,
+    0, 2, 3,
+
+    // Walls
+    4, 5, 6,
+    4, 6, 7,
+
+    8, 9, 10,
+    8, 10, 11,
+
+    12, 13, 14,
+    12, 14, 15,
+
+    // Mirror
+    16, 17, 18,
+    16, 18, 19
+};
+
+// Stores parameters for each item in the scene that will be rendered with a draw call.
+struct RenderObject
+{
+    RenderObject() = default;
+    XMFLOAT4X4               worldTransform = MathHelper::Identity4x4();
+    XMFLOAT4X4               texTransform = MathHelper::Identity4x4();
+    MeshGeometry* pGeo = nullptr;
+    //MaterialInfo* pMat = nullptr;
+    D3D12_PRIMITIVE_TOPOLOGY primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    UINT                     indexCount = 0;
+    UINT                     startIndexLocation = 0;
+    UINT                     baseVertexLocation = 0;
+    int                      objectCbIndex = -1;
+};
 
 // CBs that the shaders need.
 struct PassCb
 {
+    XMFLOAT4X4 viewProjTransform;
 };
 
 struct MaterialCb
@@ -17,6 +114,7 @@ struct MaterialCb
 
 struct ObjectCb
 {
+    XMFLOAT4X4 worldTransform;
 };
 
 // Objects used by the demo to manage resources.
@@ -51,22 +149,67 @@ public:
   virtual void OnResize()override
   {
       BaseApp::OnResize();
+      
+      // The window resized, so update the aspect ratio and recompute the projection matrix.
+      XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+      XMStoreFloat4x4(&m_proj, P);
   }
   
+  void UpdateObjectCBs()
+  {
+      ObjectCb newObjConsts = {};
+      XMMATRIX worldTransform = XMLoadFloat4x4(&m_allRenderObjects[0].get()->worldTransform);
+      XMStoreFloat4x4(&newObjConsts.worldTransform, XMMatrixTranspose(worldTransform));
+
+      m_objectCB->CopyData(0, newObjConsts);
+  }
+  void UpdateCamera(const BaseTimer& gt)
+  {
+      // Convert Spherical to Cartesian coordinates.
+      m_eyePos.x = m_radius * sinf(m_phi) * cosf(m_theta);
+      m_eyePos.z = m_radius * sinf(m_phi) * sinf(m_theta);
+      m_eyePos.y = m_radius * cosf(m_phi);
+
+      // Build the view matrix.
+      XMVECTOR pos = XMVectorSet(m_eyePos.x, m_eyePos.y, m_eyePos.z, 1.0f);
+      XMVECTOR target = XMVectorZero();
+      XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+      XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+      XMStoreFloat4x4(&m_view, view);
+  }
+
+  void UpdatePassCB()
+  {
+      XMMATRIX view = XMLoadFloat4x4(&m_view);
+      XMMATRIX proj = XMLoadFloat4x4(&m_proj);
+      XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+      PassCb newPassCb = {};
+      XMStoreFloat4x4(&newPassCb.viewProjTransform, XMMatrixTranspose(viewProj));
+
+      m_passCB->CopyData(0, newPassCb);
+  }
+
   virtual void Update(const BaseTimer& gt)override
   {
+      UpdateCamera(gt);
+
       if ((m_currentFence != 0) && (m_fence->GetCompletedValue() < m_currentFence)) {
           HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
           ThrowIfFailed(m_fence->SetEventOnCompletion(m_currentFence, eventHandle));
           WaitForSingleObject(eventHandle, INFINITE);
           CloseHandle(eventHandle);
       }
+
+      UpdatePassCB();
+      UpdateObjectCBs();
   }
 
   virtual void Draw(const BaseTimer& gt)override
   {
       ThrowIfFailed(m_directCmdListAlloc->Reset());
-      ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
+      ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(),
+                                         m_pipelines["opaque"].Get()));
 
       m_commandList->RSSetViewports(1, &m_screenViewport);
       m_commandList->RSSetScissorRects(1, &m_scissorRect);
@@ -92,6 +235,24 @@ public:
                                         &CurrentBackBufferView(), // handle to rt
                                         true,                     // descriptors are contiguous
                                         &DepthStencilView());     // handle to ds
+
+      m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+      m_commandList->SetGraphicsRootConstantBufferView(0, m_objectCB->Resource()->GetGPUVirtualAddress());
+      m_commandList->SetGraphicsRootConstantBufferView(1, m_passCB->Resource()->GetGPUVirtualAddress());
+      for (size_t i = 0; i < m_allRenderObjects.size(); ++i)
+      {
+          auto ri =  m_allRenderObjects[i].get();
+
+          m_commandList->IASetVertexBuffers(0, 1, &ri->pGeo->VertexBufferView());
+          m_commandList->IASetIndexBuffer(&ri->pGeo->IndexBufferView());
+          m_commandList->IASetPrimitiveTopology(ri->primitiveType);
+          
+          m_commandList->DrawIndexedInstanced(ri->indexCount,
+                                              1,
+                                              ri->startIndexLocation,
+                                              ri->baseVertexLocation,
+                                              0);
+      }
 
       // Transition the render target back to be presentable.
       m_commandList->ResourceBarrier(1,
@@ -121,12 +282,95 @@ public:
 
   void BuildSceneGeometry()
   {
-      
-      
+      // Start with two grids and a box.
+      SubmeshGeometry floorSubmesh;
+      floorSubmesh.indexCount = 6;
+      floorSubmesh.startIndexLocation = 0;
+      floorSubmesh.baseVertexLocation = 0;
+
+      SubmeshGeometry wallSubmesh;
+      wallSubmesh.indexCount = 18;
+      wallSubmesh.startIndexLocation = 6;
+      wallSubmesh.baseVertexLocation = 0;
+
+      SubmeshGeometry mirrorSubmesh;
+      mirrorSubmesh.indexCount = 6;
+      mirrorSubmesh.startIndexLocation = 24;
+      mirrorSubmesh.baseVertexLocation = 0;
+
+      const UINT vbByteSize = (UINT)vertices.size() * sizeof(ShaderVertex);
+      const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+      auto geo = std::make_unique<MeshGeometry>();
+      geo->name = "roomGeo";
+
+      ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->vertexBufferCPU));
+      CopyMemory(geo->vertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+      ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->indexBufferCPU));
+      CopyMemory(geo->indexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+      geo->vertexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+          m_commandList.Get(), vertices.data(), vbByteSize, geo->vertexBufferUploader);
+
+      geo->indexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+          m_commandList.Get(), indices.data(), ibByteSize, geo->indexBufferUploader);
+
+      geo->vertexByteStride     = sizeof(ShaderVertex);
+      geo->vertexBufferByteSize = vbByteSize;
+      geo->indexFormat          = DXGI_FORMAT_R16_UINT;
+      geo->indexBufferByteSize  = ibByteSize;
+
+      geo->drawArgs["floor"]  = floorSubmesh;
+      geo->drawArgs["wall"]   = wallSubmesh;
+      geo->drawArgs["mirror"] = mirrorSubmesh;
+
+      m_geometries[geo->name] = std::move(geo);
   }
 
   void BuildRenderItems()
   {
+      auto floorRitem = std::make_unique<RenderObject>();
+      floorRitem->worldTransform = MathHelper::Identity4x4();
+      floorRitem->texTransform = MathHelper::Identity4x4();
+      floorRitem->objectCbIndex = 0;
+      //floorRitem->pMat = m_materials["checkertile"].get();
+      floorRitem->pGeo = m_geometries["roomGeo"].get();
+      floorRitem->primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+      floorRitem->indexCount = floorRitem->pGeo->drawArgs["floor"].indexCount;
+      floorRitem->startIndexLocation = floorRitem->pGeo->drawArgs["floor"].startIndexLocation;
+      floorRitem->baseVertexLocation = floorRitem->pGeo->drawArgs["floor"].baseVertexLocation;
+      //m_renderLayer[(int)RenderLayer::Opaque].push_back(floorRitem.get());
+
+      auto wallsRitem = std::make_unique<RenderObject>();
+      wallsRitem->worldTransform = MathHelper::Identity4x4();
+      wallsRitem->texTransform = MathHelper::Identity4x4();
+      wallsRitem->objectCbIndex = 1;
+      //wallsRitem->Mat = mMaterials["bricks"].get();
+      wallsRitem->pGeo = m_geometries["roomGeo"].get();
+      wallsRitem->primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+      wallsRitem->indexCount = wallsRitem->pGeo->drawArgs["wall"].indexCount;
+      wallsRitem->startIndexLocation = wallsRitem->pGeo->drawArgs["wall"].startIndexLocation;
+      wallsRitem->baseVertexLocation = wallsRitem->pGeo->drawArgs["wall"].baseVertexLocation;
+      //m_renderLayer[(int)RenderLayer::Opaque].push_back(wallsRitem.get());
+
+      auto mirrorRitem = std::make_unique<RenderObject>();
+      mirrorRitem->worldTransform = MathHelper::Identity4x4();
+      mirrorRitem->texTransform = MathHelper::Identity4x4();
+      mirrorRitem->objectCbIndex = 5;
+      //mirrorRitem->Mat = mMaterials["icemirror"].get();
+      mirrorRitem->pGeo = m_geometries["roomGeo"].get();
+      mirrorRitem->primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+      mirrorRitem->indexCount = mirrorRitem->pGeo->drawArgs["mirror"].indexCount;
+      mirrorRitem->startIndexLocation = mirrorRitem->pGeo->drawArgs["mirror"].startIndexLocation;
+      mirrorRitem->baseVertexLocation = mirrorRitem->pGeo->drawArgs["mirror"].baseVertexLocation;
+      //m_renderLayer[(int)RenderLayer::Mirrors].push_back(mirrorRitem.get());
+      //m_renderLayer[(int)RenderLayer::Transparent].push_back(mirrorRitem.get());
+      //m_renderLayer[(int)RenderLayer::Opaque].push_back(wallsRitem.get());
+
+      m_allRenderObjects.push_back(std::move(floorRitem));
+      m_allRenderObjects.push_back(std::move(wallsRitem));
+      m_allRenderObjects.push_back(std::move(mirrorRitem));
   }
 
   void BuildMaterials()
@@ -135,12 +379,87 @@ public:
 
   void BuildShadersAndInputLayout()
   {
+      m_shaders["standardVS"] = BaseUtil::CompileShader(L"shaders\\stenciling.hlsl", nullptr, "VS", "vs_5_0");
+      m_shaders["opaquePS"] = BaseUtil::CompileShader(L"shaders\\stenciling.hlsl", nullptr, "PS", "ps_5_0");
+
+      m_inputLayout =
+      {
+          { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+          { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+          { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+      };
+  }
+
+  void BuildRootSignature()
+  {
+      CD3DX12_ROOT_PARAMETER rootParam[2];
+      rootParam[0].InitAsConstantBufferView(0);
+      rootParam[1].InitAsConstantBufferView(1);
+
+      CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(2, rootParam, 0, nullptr,
+          D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+      
+      ComPtr<ID3DBlob> serializedRootSig = nullptr;
+      ComPtr<ID3DBlob> errorBlob = nullptr;
+      HRESULT hr = D3D12SerializeRootSignature(&rootSignDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+          serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+      if (errorBlob != nullptr)
+      {
+          ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+      }
+      ThrowIfFailed(hr);
+
+      ThrowIfFailed(m_d3dDevice->CreateRootSignature(0,
+                                                     serializedRootSig->GetBufferPointer(),
+                                                     serializedRootSig->GetBufferSize(),
+                                                     IID_PPV_ARGS(m_rootSignature.GetAddressOf())));
+  }
+
+  // Builds the constant buffers etc needed in the shader program.
+  void InitShaderResources()
+  {
+      const uint32_t NumObjects = 3;
+      m_objectCB = std::make_unique<UploadBuffer<ObjectCb>>(m_d3dDevice.Get(), 1, true);
+      m_passCB   = std::make_unique<UploadBuffer<PassCb>>(m_d3dDevice.Get(), 1, true);
+
   }
 
   // Builds shaders, descriptors and pipelines. 
   void BuildPipelines()
   {
+    InitShaderResources();
+    BuildRootSignature();
     BuildShadersAndInputLayout();
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
+
+    ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    opaquePsoDesc.InputLayout = { m_inputLayout.data(), (UINT)m_inputLayout.size() };
+    opaquePsoDesc.pRootSignature = m_rootSignature.Get();
+    opaquePsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(m_shaders["standardVS"]->GetBufferPointer()),
+        m_shaders["standardVS"]->GetBufferSize()
+    };
+    opaquePsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(m_shaders["opaquePS"]->GetBufferPointer()),
+        m_shaders["opaquePS"]->GetBufferSize()
+    };
+    opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.SampleMask = UINT_MAX;
+    opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    opaquePsoDesc.NumRenderTargets = 1;
+    opaquePsoDesc.RTVFormats[0] = m_backBufferFormat;
+    opaquePsoDesc.SampleDesc.Count = m_4xMsaaEn ? 4 : 1;
+    opaquePsoDesc.SampleDesc.Quality = m_4xMsaaEn ? (m_4xMsaaQuality - 1) : 0;
+    opaquePsoDesc.DSVFormat = m_depthStencilFormat;
+    ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc,
+                                                           IID_PPV_ARGS(&m_pipelines["opaque"])));
   }
   
   virtual bool Initialize() override
@@ -172,7 +491,23 @@ public:
   }
 
   // Member variables.
-  
+  ComPtr<ID3D12RootSignature>                             m_rootSignature   = nullptr;
+  std::unique_ptr<UploadBuffer<ObjectCb>>                 m_objectCB        = nullptr;
+  std::unique_ptr<UploadBuffer<PassCb>>                   m_passCB          = nullptr;
+  std::vector<std::unique_ptr<RenderObject>>              m_allRenderObjects;
+  std::unordered_map<string, unique_ptr<MeshGeometry>>    m_geometries;
+  std::vector<RenderObject*>                              m_renderLayer[(int)RenderLayer::Count];
+  std::unordered_map<std::string, ComPtr<ID3DBlob>>       m_shaders;
+  std::vector<D3D12_INPUT_ELEMENT_DESC>                   m_inputLayout;
+  std::unordered_map<string, ComPtr<ID3D12PipelineState>> m_pipelines;
+  XMFLOAT3                                                m_eyePos = { 0.0f, 0.0f, 0.0f };
+  XMFLOAT4X4                                              m_view = MathHelper::Identity4x4();
+  XMFLOAT4X4                                              m_proj = MathHelper::Identity4x4();
+  float                                                   m_theta = 1.24f * XM_PI;
+  float                                                   m_phi = 0.42f * XM_PI;
+  float                                                   m_radius = 20.0f;
+  POINT                                                   m_lastMousePos;
+
   
 }; // Class StencilDemo
 
@@ -196,7 +531,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR cmdLine, i
       MessageBox(nullptr, e.ToString().c_str(), L"HR Failed", MB_OK);
       return 0;
     }
-  
 }
 
 
@@ -207,8 +541,8 @@ TODO:
 - Write WinMain
 - Demo class
 - Initialize function
-
 - Clear the screen with some color.
+
 - Load basic 3D geometry
 - Camera controls
 - Implement lighting
