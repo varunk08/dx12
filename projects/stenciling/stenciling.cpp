@@ -37,7 +37,7 @@ struct ShaderVertex
 const std::array<ShaderVertex, 20> vertices =
 {
     // Floor: Observe we tile texture coordinates.
-    ShaderVertex(-3.5f, 0.0f, -10.0f, 0.0f, 1.0f, 0.0f, 0.0f, 4.0f), // 0 
+    ShaderVertex(-3.5f, 0.0f, -10.0f, 0.0f, 1.0f, 0.0f, 0.0f, 4.0f), // 0
     ShaderVertex(-3.5f, 0.0f,   0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f),
     ShaderVertex(7.5f, 0.0f,   0.0f, 0.0f, 1.0f, 0.0f, 4.0f, 0.0f),
     ShaderVertex(7.5f, 0.0f, -10.0f, 0.0f, 1.0f, 0.0f, 4.0f, 4.0f),
@@ -49,7 +49,7 @@ const std::array<ShaderVertex, 20> vertices =
     ShaderVertex(-2.5f, 4.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.5f, 0.0f),
     ShaderVertex(-2.5f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.5f, 2.0f),
 
-    ShaderVertex(2.5f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 2.0f), // 8 
+    ShaderVertex(2.5f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 2.0f), // 8
     ShaderVertex(2.5f, 4.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f),
     ShaderVertex(7.5f, 4.0f, 0.0f, 0.0f, 0.0f, -1.0f, 2.0f, 0.0f),
     ShaderVertex(7.5f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 2.0f, 2.0f),
@@ -121,7 +121,7 @@ struct ObjectCb
 struct MaterialInfo
 {
 };
-  
+
 // Our stenciling demo app, derived from the BaseApp ofcourse.
 class StencilDemo final : public BaseApp
 {
@@ -145,16 +145,16 @@ public:
         FlushCommandQueue();
     }
   }
-  
+
   virtual void OnResize()override
   {
       BaseApp::OnResize();
-      
+
       // The window resized, so update the aspect ratio and recompute the projection matrix.
       XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
       XMStoreFloat4x4(&m_proj, P);
   }
-  
+
   void UpdateObjectCBs()
   {
       ObjectCb newObjConsts = {};
@@ -246,7 +246,7 @@ public:
           m_commandList->IASetVertexBuffers(0, 1, &ri->pGeo->VertexBufferView());
           m_commandList->IASetIndexBuffer(&ri->pGeo->IndexBufferView());
           m_commandList->IASetPrimitiveTopology(ri->primitiveType);
-          
+
           m_commandList->DrawIndexedInstanced(ri->indexCount,
                                               1,
                                               ri->startIndexLocation,
@@ -272,9 +272,40 @@ public:
 
   }
 
-  virtual void OnMouseDown(WPARAM btnState, int x, int y)override{}
-  virtual void OnMouseUp(WPARAM btnState, int x, int y)override{}
-  virtual void OnMouseMove(WPARAM btnState, int x, int y)override{}
+  virtual void OnMouseDown(WPARAM btnState, int x, int y)override
+  {
+      m_lastMousePos.x = x;
+      m_lastMousePos.y = y;
+
+
+      SetCapture(mhMainWnd);
+  }
+
+  virtual void OnMouseUp(WPARAM btnState, int x, int y)override
+  {
+      ReleaseCapture();
+  }
+
+  virtual void OnMouseMove(WPARAM btnState, int x, int y)override
+  {
+      if ((btnState & MK_LBUTTON) != 0) {
+          float dx = XMConvertToRadians(0.25f * static_cast<float>(x - m_lastMousePos.x));
+          float dy = XMConvertToRadians(0.25f * static_cast<float>(y - m_lastMousePos.y));
+
+          m_theta += dx;
+          m_phi   += dy;
+          m_phi = MathHelper::Clamp(m_phi, 0.1f, MathHelper::Pi - 0.1f);
+      }
+      else if ((btnState & MK_RBUTTON) != 0) {
+          float dx = 0.2f * static_cast<float>(x - m_lastMousePos.x);
+          float dy = 0.2f * static_cast<float>(y - m_lastMousePos.y);
+          m_radius += (dx - dy);
+          m_radius = MathHelper::Clamp(m_radius, 5.0f, 600.0f);
+      }
+
+      m_lastMousePos.x = x;
+      m_lastMousePos.y = y;
+  }
 
   void LoadTextures()
   {
@@ -398,7 +429,7 @@ public:
 
       CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(2, rootParam, 0, nullptr,
           D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-      
+
       ComPtr<ID3DBlob> serializedRootSig = nullptr;
       ComPtr<ID3DBlob> errorBlob = nullptr;
       HRESULT hr = D3D12SerializeRootSignature(&rootSignDesc, D3D_ROOT_SIGNATURE_VERSION_1,
@@ -425,7 +456,7 @@ public:
 
   }
 
-  // Builds shaders, descriptors and pipelines. 
+  // Builds shaders, descriptors and pipelines.
   void BuildPipelines()
   {
     InitShaderResources();
@@ -461,12 +492,12 @@ public:
     ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc,
                                                            IID_PPV_ARGS(&m_pipelines["opaque"])));
   }
-  
+
   virtual bool Initialize() override
   {
     // Initializes main window and d3d.
     bool result = BaseApp::Initialize();
-    
+
     if (result == true) {
         ThrowIfFailed(m_commandList.Get()->Reset(m_directCmdListAlloc.Get(), nullptr));
 
@@ -486,7 +517,7 @@ public:
     else {
         ::OutputDebugStringA("Error initializing stencil demo\n");
     }
-    
+
     return result;
   }
 
@@ -508,7 +539,7 @@ public:
   float                                                   m_radius = 20.0f;
   POINT                                                   m_lastMousePos;
 
-  
+
 }; // Class StencilDemo
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR cmdLine, int showCmd)
@@ -543,8 +574,9 @@ TODO:
 - Initialize function
 - Clear the screen with some color.
 
-- Load basic 3D geometry
 - Camera controls
+- Load basic 3D geometry
+    - write 3d model loader.
 - Implement lighting
 - Implement texturing
 - Implement shadows
