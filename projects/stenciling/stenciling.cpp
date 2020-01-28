@@ -6,6 +6,7 @@
 #include "../common/BaseApp.h"
 #include "../common/GeometryGenerator.h"
 #include "../common/UploadBuffer.h"
+#include "../common/DDSTextureLoader.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace std;
@@ -309,6 +310,26 @@ public:
 
   void LoadTextures()
   {
+      unique_ptr<Texture> bricksTex = std::make_unique<Texture>();
+      bricksTex->name_              = "bricksTex";
+      bricksTex->filename_          = L"..\\textures\\bricks3.dds";
+      ThrowIfFailed(CreateDDSTextureFromFile12(m_d3dDevice.Get(),
+                                               m_commandList.Get(),
+                                               bricksTex->filename_.c_str(),
+                                               bricksTex->resource_,
+                                               bricksTex->uploadHeap_));
+
+      unique_ptr<Texture> checkboardTex = std::make_unique<Texture>();
+      checkboardTex->name_              = "checkerboardTex";
+      checkboardTex->filename_          = L"..\\textures\\checkboard.dds";
+      ThrowIfFailed(CreateDDSTextureFromFile12(m_d3dDevice.Get(),
+                                               m_commandList.Get(),
+                                               checkboardTex->filename_.c_str(),
+                                               checkboardTex->resource_,
+                                               checkboardTex->uploadHeap_));
+
+      m_textures[bricksTex->name_] = std::move(bricksTex);
+      m_textures[checkboardTex->name_] = std::move(checkboardTex);
   }
 
   void BuildSceneGeometry()
@@ -456,6 +477,33 @@ public:
 
   }
 
+  // Build descriptor heaps and shader resource views for our textures.
+  void BuildShaderViews()
+  {
+      D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+      srvHeapDesc.NumDescriptors = 2; // Two textures for now.
+      srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+      srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+      ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvDescriptorHeap)));
+
+      CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(m_srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+      auto bricksRes = m_textures["bricksTex"]->resource_;
+      auto checkerRes = m_textures["checkerboardTex"]->resource_;
+
+      D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+      srvDesc.Shader4ComponentMapping         = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+      srvDesc.Format                          = bricksRes->GetDesc().Format;
+      srvDesc.ViewDimension                   = D3D12_SRV_DIMENSION_TEXTURE2D;
+      srvDesc.Texture2D.MostDetailedMip       = 0;
+      srvDesc.Texture2D.MipLevels             = -1;
+      m_d3dDevice->CreateShaderResourceView(bricksRes.Get(), &srvDesc, hDescriptor);
+
+      hDescriptor.Offset(1, m_cbvSrvUavDescriptorSize);
+      srvDesc.Format = checkerRes->GetDesc().Format;
+      m_d3dDevice->CreateShaderResourceView(checkerRes.Get(), &srvDesc, hDescriptor);
+  }
+
   // Builds shaders, descriptors and pipelines.
   void BuildPipelines()
   {
@@ -493,6 +541,63 @@ public:
                                                            IID_PPV_ARGS(&m_pipelines["opaque"])));
   }
 
+  std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers()
+  {
+      // Applications usually only need a handful of samplers.  So just define them all up front
+      // and keep them available as part of the root signature.
+
+      const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
+          0, // shaderRegister
+          D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+          D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+          D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+          D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+
+      const CD3DX12_STATIC_SAMPLER_DESC pointClamp(
+          1, // shaderRegister
+          D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+          D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+          D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+          D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+
+      const CD3DX12_STATIC_SAMPLER_DESC linearWrap(
+          2, // shaderRegister
+          D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+          D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+          D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+          D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+
+      const CD3DX12_STATIC_SAMPLER_DESC linearClamp(
+          3, // shaderRegister
+          D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+          D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+          D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+          D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+
+      const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(
+          4, // shaderRegister
+          D3D12_FILTER_ANISOTROPIC, // filter
+          D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+          D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+          D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressW
+          0.0f,                             // mipLODBias
+          8);                               // maxAnisotropy
+
+      const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(
+          5, // shaderRegister
+          D3D12_FILTER_ANISOTROPIC, // filter
+          D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+          D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+          D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressW
+          0.0f,                              // mipLODBias
+          8);                                // maxAnisotropy
+
+      return {
+          pointWrap, pointClamp,
+          linearWrap, linearClamp,
+          anisotropicWrap, anisotropicClamp };
+  }
+
   virtual bool Initialize() override
   {
     // Initializes main window and d3d.
@@ -504,6 +609,7 @@ public:
         LoadTextures();
         BuildSceneGeometry();
         BuildMaterials();
+        BuildShaderViews();
         BuildPipelines();
         BuildRenderItems();
 
@@ -529,6 +635,7 @@ public:
   std::unordered_map<string, unique_ptr<MeshGeometry>>    m_geometries;
   std::vector<RenderObject*>                              m_renderLayer[(int)RenderLayer::Count];
   std::unordered_map<std::string, ComPtr<ID3DBlob>>       m_shaders;
+  std::unordered_map<std::string, unique_ptr<Texture>>    m_textures;
   std::vector<D3D12_INPUT_ELEMENT_DESC>                   m_inputLayout;
   std::unordered_map<string, ComPtr<ID3D12PipelineState>> m_pipelines;
   XMFLOAT3                                                m_eyePos = { 0.0f, 0.0f, 0.0f };
@@ -538,6 +645,7 @@ public:
   float                                                   m_phi = 0.42f * XM_PI;
   float                                                   m_radius = 20.0f;
   POINT                                                   m_lastMousePos;
+  ComPtr<ID3D12DescriptorHeap>                            m_srvDescriptorHeap = nullptr;
 
 
 }; // Class StencilDemo
