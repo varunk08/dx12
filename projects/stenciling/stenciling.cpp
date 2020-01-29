@@ -237,9 +237,13 @@ public:
                                         true,                     // descriptors are contiguous
                                         &DepthStencilView());     // handle to ds
 
+      ID3D12DescriptorHeap* ppDescriptorHeaps[] = { m_srvDescriptorHeap.Get() };
+      m_commandList->SetDescriptorHeaps(_countof(ppDescriptorHeaps), ppDescriptorHeaps);
       m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
       m_commandList->SetGraphicsRootConstantBufferView(0, m_objectCB->Resource()->GetGPUVirtualAddress());
       m_commandList->SetGraphicsRootConstantBufferView(1, m_passCB->Resource()->GetGPUVirtualAddress());
+      m_commandList->SetGraphicsRootDescriptorTable(2, m_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+
       for (size_t i = 0; i < m_allRenderObjects.size(); ++i)
       {
           auto ri =  m_allRenderObjects[i].get();
@@ -444,12 +448,16 @@ public:
 
   void BuildRootSignature()
   {
-      CD3DX12_ROOT_PARAMETER rootParam[2];
+      CD3DX12_DESCRIPTOR_RANGE texTable;
+      texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // t0
+
+      CD3DX12_ROOT_PARAMETER rootParam[3];
       rootParam[0].InitAsConstantBufferView(0);
       rootParam[1].InitAsConstantBufferView(1);
+      rootParam[2].InitAsDescriptorTable(1, &texTable);
 
-      CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(2, rootParam, 0, nullptr,
-          D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+      CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(3, rootParam, (UINT)m_staticSamplers.size(),
+        m_staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
       ComPtr<ID3DBlob> serializedRootSig = nullptr;
       ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -527,7 +535,6 @@ public:
         m_shaders["opaquePS"]->GetBufferSize()
     };
     opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
     opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     opaquePsoDesc.SampleMask = UINT_MAX;
