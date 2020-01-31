@@ -12,6 +12,8 @@ using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
 
+const uint32_t NumObjects = 4;
+
 enum class RenderLayer : int
 {
     Opaque = 0,
@@ -160,11 +162,13 @@ public:
 
   void UpdateObjectCBs()
   {
-      ObjectCb newObjConsts = {};
-      XMMATRIX worldTransform = XMLoadFloat4x4(&m_allRenderObjects[0].get()->worldTransform);
-      XMStoreFloat4x4(&newObjConsts.worldTransform, XMMatrixTranspose(worldTransform));
+      for (auto& rObj : m_allRenderObjects) {
+        ObjectCb newObjConsts = {};
+        XMMATRIX worldTransform = XMLoadFloat4x4(&rObj.get()->worldTransform);
+        XMStoreFloat4x4(&newObjConsts.worldTransform, XMMatrixTranspose(worldTransform));
 
-      m_objectCB->CopyData(0, newObjConsts);
+        m_objectCB->CopyData(rObj->objectCbIndex, newObjConsts);
+      }
   }
   void UpdateCamera(const BaseTimer& gt)
   {
@@ -244,8 +248,7 @@ public:
       m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
       m_commandList->SetGraphicsRootConstantBufferView(1, m_passCB->Resource()->GetGPUVirtualAddress());
 
-      m_commandList->SetGraphicsRootConstantBufferView(0, m_objectCB->Resource()->GetGPUVirtualAddress());
-
+      const unsigned int objCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(ObjectCb));
       for (size_t i = 0; i < m_allRenderObjects.size(); ++i)
       {
           auto ri =  m_allRenderObjects[i].get();
@@ -257,6 +260,10 @@ public:
           CD3DX12_GPU_DESCRIPTOR_HANDLE hTex(m_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
           hTex.Offset(ri->pMat->textureIndex, m_cbvSrvUavDescriptorSize);
           m_commandList->SetGraphicsRootDescriptorTable(2, hTex);
+          
+          D3D12_GPU_VIRTUAL_ADDRESS objCbAddr = m_objectCB->Resource()->GetGPUVirtualAddress() +
+                                                (ri->objectCbIndex * objCbByteSize);
+          m_commandList->SetGraphicsRootConstantBufferView(0, objCbAddr);
 
           m_commandList->DrawIndexedInstanced(ri->indexCount,
                                               1,
@@ -344,7 +351,6 @@ public:
 
   void BuildSceneGeometry()
   {
-      // Start with two grids and a box.
       SubmeshGeometry floorSubmesh;
       floorSubmesh.indexCount = 6;
       floorSubmesh.startIndexLocation = 0;
@@ -360,9 +366,24 @@ public:
       mirrorSubmesh.startIndexLocation = 24;
       mirrorSubmesh.baseVertexLocation = 0;
 
-      const UINT vbByteSize = (UINT)vertices.size() * sizeof(ShaderVertex);
-      const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+      GeometryGenerator generator;
+      MeshData boxMesh = generator.CreateBox(5, 5, 5, 0);
+      std::vector<ShaderVertex> boxVertices(boxMesh.m_vertices.size());
 
+      for (UINT i = 0; i < boxVertices.size(); i++) {
+          boxVertices[i].Pos = boxMesh.m_vertices[i].m_position;
+          boxVertices[i].Normal = boxMesh.m_vertices[i].m_normal;
+          boxVertices[i].TexC = boxMesh.m_vertices[i].m_texC;
+      }
+
+      std::vector<uint16_t> boxIndices = boxMesh.GetIndices16();
+      
+      const unsigned int boxVbByteSize = static_cast<unsigned int>(boxVertices.size()) * sizeof(ShaderVertex);
+      const unsigned int boxIbByteSize = static_cast<unsigned int>(boxIndices.size()) * sizeof(uint16_t);
+
+      const UINT vbByteSize = ((UINT)vertices.size()) * sizeof(ShaderVertex);
+      const UINT ibByteSize = ((UINT)indices.size()) * sizeof(std::uint16_t);
+     
       auto geo = std::make_unique<MeshGeometry>();
       geo->name = "roomGeo";
 
@@ -386,8 +407,34 @@ public:
       geo->drawArgs["floor"]  = floorSubmesh;
       geo->drawArgs["wall"]   = wallSubmesh;
       geo->drawArgs["mirror"] = mirrorSubmesh;
+      
+      SubmeshGeometry boxSubmesh;
+      boxSubmesh.indexCount = static_cast<unsigned int>(boxIndices.size());
+      boxSubmesh.baseVertexLocation = 0;
+      boxSubmesh.startIndexLocation = 0;
 
-      m_geometries[geo->name] = std::move(geo);
+      unique_ptr<MeshGeometry> boxGeo = make_unique<MeshGeometry>();
+      boxGeo->name = "box";
+      ThrowIfFailed(D3DCreateBlob(boxVbByteSize, &boxGeo->vertexBufferCPU));
+      CopyMemory(boxGeo->vertexBufferCPU->GetBufferPointer(), boxVertices.data(), vbByteSize);
+
+      ThrowIfFailed(D3DCreateBlob(boxIbByteSize, &boxGeo->indexBufferCPU));
+      CopyMemory(boxGeo->indexBufferCPU->GetBufferPointer(), boxIndices.data(), ibByteSize);
+
+      boxGeo->vertexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+          m_commandList.Get(), boxVertices.data(), boxVbByteSize, boxGeo->vertexBufferUploader);
+
+      boxGeo->indexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+          m_commandList.Get(), boxIndices.data(), boxIbByteSize, boxGeo->indexBufferUploader);
+      boxGeo->vertexByteStride = sizeof(ShaderVertex);
+      boxGeo->vertexBufferByteSize = boxVbByteSize;
+      boxGeo->indexFormat = DXGI_FORMAT_R16_UINT;
+      boxGeo->indexBufferByteSize = boxIbByteSize;
+      boxGeo->drawArgs["box"] = boxSubmesh;
+
+
+      m_geometries[boxGeo->name] = std::move(boxGeo); // box
+      m_geometries[geo->name] = std::move(geo); // room
   }
 
   void BuildRenderItems()
@@ -419,7 +466,7 @@ public:
       auto mirrorRitem = std::make_unique<RenderObject>();
       mirrorRitem->worldTransform = MathHelper::Identity4x4();
       mirrorRitem->texTransform = MathHelper::Identity4x4();
-      mirrorRitem->objectCbIndex = 5;
+      mirrorRitem->objectCbIndex = 2;
       mirrorRitem->pMat = m_materials["checker"].get();
       mirrorRitem->pGeo = m_geometries["roomGeo"].get();
       mirrorRitem->primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -430,9 +477,22 @@ public:
       //m_renderLayer[(int)RenderLayer::Transparent].push_back(mirrorRitem.get());
       //m_renderLayer[(int)RenderLayer::Opaque].push_back(wallsRitem.get());
 
+      unique_ptr<RenderObject> boxItem = make_unique<RenderObject>();
+      XMStoreFloat4x4(&boxItem->worldTransform, (XMMatrixMultiply(XMMatrixScaling(0.5f, 0.5f, 0.5f),
+                                                                  XMMatrixTranslation(0.0f, 2.0f, -4.0f))));
+      boxItem->texTransform = MathHelper::Identity4x4();
+      boxItem->objectCbIndex = 3;
+      boxItem->pMat = m_materials["bricks"].get();
+      boxItem->pGeo = m_geometries["box"].get();
+      boxItem->primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+      boxItem->indexCount = boxItem->pGeo->drawArgs["box"].indexCount;
+      boxItem->startIndexLocation = boxItem->pGeo->drawArgs["box"].startIndexLocation;
+      boxItem->baseVertexLocation = boxItem->pGeo->drawArgs["box"].baseVertexLocation;
+
       m_allRenderObjects.push_back(std::move(floorRitem));
       m_allRenderObjects.push_back(std::move(wallsRitem));
       m_allRenderObjects.push_back(std::move(mirrorRitem));
+      m_allRenderObjects.push_back(std::move(boxItem));
   }
 
   void BuildMaterials()
@@ -493,10 +553,9 @@ public:
   // Builds the constant buffers etc needed in the shader program.
   void InitShaderResources()
   {
-      const uint32_t NumObjects = 3;
-      m_objectCB = std::make_unique<UploadBuffer<ObjectCb>>(m_d3dDevice.Get(), 1, true);
-      m_passCB   = std::make_unique<UploadBuffer<PassCb>>(m_d3dDevice.Get(), 1, true);
 
+      m_objectCB = std::make_unique<UploadBuffer<ObjectCb>>(m_d3dDevice.Get(), NumObjects, true);
+      m_passCB   = std::make_unique<UploadBuffer<PassCb>>(m_d3dDevice.Get(), 1, true);
   }
 
   // Build descriptor heaps and shader resource views for our textures.
@@ -549,6 +608,7 @@ public:
         m_shaders["opaquePS"]->GetBufferSize()
     };
     opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    //opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
     opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     opaquePsoDesc.SampleMask = UINT_MAX;
