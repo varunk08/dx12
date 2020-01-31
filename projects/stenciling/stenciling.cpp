@@ -260,7 +260,7 @@ public:
           CD3DX12_GPU_DESCRIPTOR_HANDLE hTex(m_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
           hTex.Offset(ri->pMat->textureIndex, m_cbvSrvUavDescriptorSize);
           m_commandList->SetGraphicsRootDescriptorTable(2, hTex);
-          
+
           D3D12_GPU_VIRTUAL_ADDRESS objCbAddr = m_objectCB->Resource()->GetGPUVirtualAddress() +
                                                 (ri->objectCbIndex * objCbByteSize);
           m_commandList->SetGraphicsRootConstantBufferView(0, objCbAddr);
@@ -377,13 +377,12 @@ public:
       }
 
       std::vector<uint16_t> boxIndices = boxMesh.GetIndices16();
-      
       const unsigned int boxVbByteSize = static_cast<unsigned int>(boxVertices.size()) * sizeof(ShaderVertex);
       const unsigned int boxIbByteSize = static_cast<unsigned int>(boxIndices.size()) * sizeof(uint16_t);
 
       const UINT vbByteSize = ((UINT)vertices.size()) * sizeof(ShaderVertex);
       const UINT ibByteSize = ((UINT)indices.size()) * sizeof(std::uint16_t);
-     
+
       auto geo = std::make_unique<MeshGeometry>();
       geo->name = "roomGeo";
 
@@ -407,7 +406,7 @@ public:
       geo->drawArgs["floor"]  = floorSubmesh;
       geo->drawArgs["wall"]   = wallSubmesh;
       geo->drawArgs["mirror"] = mirrorSubmesh;
-      
+
       SubmeshGeometry boxSubmesh;
       boxSubmesh.indexCount = static_cast<unsigned int>(boxIndices.size());
       boxSubmesh.baseVertexLocation = 0;
@@ -449,7 +448,7 @@ public:
       floorRitem->indexCount = floorRitem->pGeo->drawArgs["floor"].indexCount;
       floorRitem->startIndexLocation = floorRitem->pGeo->drawArgs["floor"].startIndexLocation;
       floorRitem->baseVertexLocation = floorRitem->pGeo->drawArgs["floor"].baseVertexLocation;
-      //m_renderLayer[(int)RenderLayer::Opaque].push_back(floorRitem.get());
+      m_renderLayer[(int)RenderLayer::Opaque].push_back(floorRitem.get());
 
       auto wallsRitem = std::make_unique<RenderObject>();
       wallsRitem->worldTransform = MathHelper::Identity4x4();
@@ -461,7 +460,7 @@ public:
       wallsRitem->indexCount = wallsRitem->pGeo->drawArgs["wall"].indexCount;
       wallsRitem->startIndexLocation = wallsRitem->pGeo->drawArgs["wall"].startIndexLocation;
       wallsRitem->baseVertexLocation = wallsRitem->pGeo->drawArgs["wall"].baseVertexLocation;
-      //m_renderLayer[(int)RenderLayer::Opaque].push_back(wallsRitem.get());
+      m_renderLayer[(int)RenderLayer::Opaque].push_back(wallsRitem.get());
 
       auto mirrorRitem = std::make_unique<RenderObject>();
       mirrorRitem->worldTransform = MathHelper::Identity4x4();
@@ -473,9 +472,8 @@ public:
       mirrorRitem->indexCount = mirrorRitem->pGeo->drawArgs["mirror"].indexCount;
       mirrorRitem->startIndexLocation = mirrorRitem->pGeo->drawArgs["mirror"].startIndexLocation;
       mirrorRitem->baseVertexLocation = mirrorRitem->pGeo->drawArgs["mirror"].baseVertexLocation;
-      //m_renderLayer[(int)RenderLayer::Mirrors].push_back(mirrorRitem.get());
+      m_renderLayer[(int)RenderLayer::Mirrors].push_back(mirrorRitem.get());
       //m_renderLayer[(int)RenderLayer::Transparent].push_back(mirrorRitem.get());
-      //m_renderLayer[(int)RenderLayer::Opaque].push_back(wallsRitem.get());
 
       unique_ptr<RenderObject> boxItem = make_unique<RenderObject>();
       XMStoreFloat4x4(&boxItem->worldTransform, (XMMatrixMultiply(XMMatrixScaling(0.5f, 0.5f, 0.5f),
@@ -488,6 +486,7 @@ public:
       boxItem->indexCount = boxItem->pGeo->drawArgs["box"].indexCount;
       boxItem->startIndexLocation = boxItem->pGeo->drawArgs["box"].startIndexLocation;
       boxItem->baseVertexLocation = boxItem->pGeo->drawArgs["box"].baseVertexLocation;
+      m_renderLayer[(int)RenderLayer::Opaque].push_back(boxItem.get());
 
       m_allRenderObjects.push_back(std::move(floorRitem));
       m_allRenderObjects.push_back(std::move(wallsRitem));
@@ -620,6 +619,35 @@ public:
     opaquePsoDesc.DSVFormat = m_depthStencilFormat;
     ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc,
                                                            IID_PPV_ARGS(&m_pipelines["opaque"])));
+
+    // Pipeline for marking stencil buffer with whatever is drawn next.
+    CD3DX12_BLEND_DESC mirrorBlendState(D3D12_DEFAULT);
+    mirrorBlendState.RenderTarget[0].RenderTargetWriteMask = 0;
+
+    D3D12_DEPTH_STENCIL_DESC mirrorDSState;
+    mirrorDSState.DepthEnable = true;
+    mirrorDSState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // Don't write to the depth buffer?
+    mirrorDSState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    mirrorDSState.StencilEnable = true;
+    mirrorDSState.StencilReadMask = 0xff;
+    mirrorDSState.StencilWriteMask = 0xff;
+
+    mirrorDSState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+    mirrorDSState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    mirrorDSState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_REPLACE;
+    mirrorDSState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+
+    mirrorDSState.BackFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    mirrorDSState.BackFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+    mirrorDSState.BackFace.StencilPassOp = D3D12_STENCIL_OP_REPLACE;
+    mirrorDSState.BackFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC markMirrorsPsoDesc = opaquePsoDesc;
+    markMirrorsPsoDesc.BlendState = mirrorBlendState;
+    markMirrorsPsoDesc.DepthStencilState = mirrorDSState;
+    ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&markMirrorsPsoDesc,
+                                                           IID_PPV_ARGS(&m_pipelines["markStencilMirrors"])));
+
   }
 
 
@@ -759,13 +787,14 @@ TODO:
 - Demo class
 - Initialize function
 - Clear the screen with some color.
-
 - Camera controls
 - Load basic 3D geometry
-    - write 3d model loader.
-- Implement lighting
 - Implement texturing
+
+- Render objects in layers.
+- Implement lighting
 - Implement shadows
+- Write 3d model loader.
 - Implement stenciling mirror.
 - Move common types to vkCommon.
  ***********************************************************************/
