@@ -88,6 +88,13 @@ const std::array<std::int16_t, 30> indices =
     16, 18, 19
 };
 
+// Objects used by the demo to manage resources.
+struct MaterialInfo
+{
+    UINT textureIndex = 0;
+
+};
+
 // Stores parameters for each item in the scene that will be rendered with a draw call.
 struct RenderObject
 {
@@ -95,7 +102,7 @@ struct RenderObject
     XMFLOAT4X4               worldTransform = MathHelper::Identity4x4();
     XMFLOAT4X4               texTransform = MathHelper::Identity4x4();
     MeshGeometry* pGeo = nullptr;
-    //MaterialInfo* pMat = nullptr;
+    MaterialInfo* pMat = nullptr;
     D3D12_PRIMITIVE_TOPOLOGY primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     UINT                     indexCount = 0;
     UINT                     startIndexLocation = 0;
@@ -116,11 +123,6 @@ struct MaterialCb
 struct ObjectCb
 {
     XMFLOAT4X4 worldTransform;
-};
-
-// Objects used by the demo to manage resources.
-struct MaterialInfo
-{
 };
 
 // Our stenciling demo app, derived from the BaseApp ofcourse.
@@ -240,9 +242,9 @@ public:
       ID3D12DescriptorHeap* ppDescriptorHeaps[] = { m_srvDescriptorHeap.Get() };
       m_commandList->SetDescriptorHeaps(_countof(ppDescriptorHeaps), ppDescriptorHeaps);
       m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
-      m_commandList->SetGraphicsRootConstantBufferView(0, m_objectCB->Resource()->GetGPUVirtualAddress());
       m_commandList->SetGraphicsRootConstantBufferView(1, m_passCB->Resource()->GetGPUVirtualAddress());
-      m_commandList->SetGraphicsRootDescriptorTable(2, m_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+
+      m_commandList->SetGraphicsRootConstantBufferView(0, m_objectCB->Resource()->GetGPUVirtualAddress());
 
       for (size_t i = 0; i < m_allRenderObjects.size(); ++i)
       {
@@ -251,6 +253,10 @@ public:
           m_commandList->IASetVertexBuffers(0, 1, &ri->pGeo->VertexBufferView());
           m_commandList->IASetIndexBuffer(&ri->pGeo->IndexBufferView());
           m_commandList->IASetPrimitiveTopology(ri->primitiveType);
+
+          CD3DX12_GPU_DESCRIPTOR_HANDLE hTex(m_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+          hTex.Offset(ri->pMat->textureIndex, m_cbvSrvUavDescriptorSize);
+          m_commandList->SetGraphicsRootDescriptorTable(2, hTex);
 
           m_commandList->DrawIndexedInstanced(ri->indexCount,
                                               1,
@@ -390,7 +396,7 @@ public:
       floorRitem->worldTransform = MathHelper::Identity4x4();
       floorRitem->texTransform = MathHelper::Identity4x4();
       floorRitem->objectCbIndex = 0;
-      //floorRitem->pMat = m_materials["checkertile"].get();
+      floorRitem->pMat = m_materials["checker"].get();
       floorRitem->pGeo = m_geometries["roomGeo"].get();
       floorRitem->primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
       floorRitem->indexCount = floorRitem->pGeo->drawArgs["floor"].indexCount;
@@ -402,7 +408,7 @@ public:
       wallsRitem->worldTransform = MathHelper::Identity4x4();
       wallsRitem->texTransform = MathHelper::Identity4x4();
       wallsRitem->objectCbIndex = 1;
-      //wallsRitem->Mat = mMaterials["bricks"].get();
+      wallsRitem->pMat = m_materials["bricks"].get();
       wallsRitem->pGeo = m_geometries["roomGeo"].get();
       wallsRitem->primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
       wallsRitem->indexCount = wallsRitem->pGeo->drawArgs["wall"].indexCount;
@@ -414,7 +420,7 @@ public:
       mirrorRitem->worldTransform = MathHelper::Identity4x4();
       mirrorRitem->texTransform = MathHelper::Identity4x4();
       mirrorRitem->objectCbIndex = 5;
-      //mirrorRitem->Mat = mMaterials["icemirror"].get();
+      mirrorRitem->pMat = m_materials["checker"].get();
       mirrorRitem->pGeo = m_geometries["roomGeo"].get();
       mirrorRitem->primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
       mirrorRitem->indexCount = mirrorRitem->pGeo->drawArgs["mirror"].indexCount;
@@ -431,6 +437,14 @@ public:
 
   void BuildMaterials()
   {
+    unique_ptr<MaterialInfo> bricks = make_unique<MaterialInfo>();
+    bricks->textureIndex = 0;
+
+    unique_ptr<MaterialInfo> checker = make_unique<MaterialInfo>();
+    checker->textureIndex = 1;
+
+    m_materials["bricks"] = std::move(bricks);
+    m_materials["checker"] = std::move(checker);
   }
 
   void BuildShadersAndInputLayout()
@@ -597,6 +611,7 @@ public:
   float                                                   m_radius = 20.0f;
   POINT                                                   m_lastMousePos;
   ComPtr<ID3D12DescriptorHeap>                            m_srvDescriptorHeap = nullptr;
+  std::unordered_map<string, unique_ptr<MaterialInfo>>    m_materials;
 
 
   const std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6>  m_staticSamplers =
