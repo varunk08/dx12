@@ -12,7 +12,7 @@ using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
 
-const uint32_t NumObjects = 4;
+const uint32_t NumObjects = 5;
 
 enum class RenderLayer : int
 {
@@ -211,6 +211,31 @@ public:
       UpdatePassCB();
       UpdateObjectCBs();
   }
+  
+  void DrawRenderObjects(ID3D12GraphicsCommandList* pCmdList, vector<RenderObject*>& renderObjects)
+  {
+      const unsigned int objCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(ObjectCb));
+      for (auto& ri : renderObjects)
+      {
+          m_commandList->IASetVertexBuffers(0, 1, &ri->pGeo->VertexBufferView());
+          m_commandList->IASetIndexBuffer(&ri->pGeo->IndexBufferView());
+          m_commandList->IASetPrimitiveTopology(ri->primitiveType);
+
+          CD3DX12_GPU_DESCRIPTOR_HANDLE hTex(m_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+          hTex.Offset(ri->pMat->textureIndex, m_cbvSrvUavDescriptorSize);
+          m_commandList->SetGraphicsRootDescriptorTable(2, hTex);
+
+          D3D12_GPU_VIRTUAL_ADDRESS objCbAddr = m_objectCB->Resource()->GetGPUVirtualAddress() +
+                                                (ri->objectCbIndex * objCbByteSize);
+          m_commandList->SetGraphicsRootConstantBufferView(0, objCbAddr);
+
+          m_commandList->DrawIndexedInstanced(ri->indexCount,
+                                              1,
+                                              ri->startIndexLocation,
+                                              ri->baseVertexLocation,
+                                              0);
+      }
+  }
 
   virtual void Draw(const BaseTimer& gt)override
   {
@@ -248,29 +273,20 @@ public:
       m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
       m_commandList->SetGraphicsRootConstantBufferView(1, m_passCB->Resource()->GetGPUVirtualAddress());
 
-      const unsigned int objCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(ObjectCb));
-      for (size_t i = 0; i < m_allRenderObjects.size(); ++i)
-      {
-          auto ri =  m_allRenderObjects[i].get();
+      // Draw the regular opaque objects.
+      DrawRenderObjects(m_commandList.Get(), m_renderLayer[(int)RenderLayer::Opaque]);
 
-          m_commandList->IASetVertexBuffers(0, 1, &ri->pGeo->VertexBufferView());
-          m_commandList->IASetIndexBuffer(&ri->pGeo->IndexBufferView());
-          m_commandList->IASetPrimitiveTopology(ri->primitiveType);
+      // Draw to the stencil buffer.
+      m_commandList->OMSetStencilRef(1);
+      m_commandList->SetPipelineState(m_pipelines["markStencilMirrors"].Get());
+      DrawRenderObjects(m_commandList.Get(), m_renderLayer[(int)RenderLayer::Mirrors]);
 
-          CD3DX12_GPU_DESCRIPTOR_HANDLE hTex(m_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-          hTex.Offset(ri->pMat->textureIndex, m_cbvSrvUavDescriptorSize);
-          m_commandList->SetGraphicsRootDescriptorTable(2, hTex);
+      // Draw the reflected opaque objects. Only those within the stencil will be written to the render target.
+      m_commandList->SetPipelineState(m_pipelines["drawReflectedObjects"].Get());
+      DrawRenderObjects(m_commandList.Get(), m_renderLayer[(int)RenderLayer::Reflected]);
 
-          D3D12_GPU_VIRTUAL_ADDRESS objCbAddr = m_objectCB->Resource()->GetGPUVirtualAddress() +
-                                                (ri->objectCbIndex * objCbByteSize);
-          m_commandList->SetGraphicsRootConstantBufferView(0, objCbAddr);
-
-          m_commandList->DrawIndexedInstanced(ri->indexCount,
-                                              1,
-                                              ri->startIndexLocation,
-                                              ri->baseVertexLocation,
-                                              0);
-      }
+      // Restore the stencil ref.
+      m_commandList->OMSetStencilRef(0);
 
       // Transition the render target back to be presentable.
       m_commandList->ResourceBarrier(1,
@@ -436,7 +452,7 @@ public:
       m_geometries[geo->name] = std::move(geo); // room
   }
 
-  void BuildRenderItems()
+  void BuildRenderObjects()
   {
       auto floorRitem = std::make_unique<RenderObject>();
       floorRitem->worldTransform = MathHelper::Identity4x4();
@@ -475,9 +491,10 @@ public:
       m_renderLayer[(int)RenderLayer::Mirrors].push_back(mirrorRitem.get());
       //m_renderLayer[(int)RenderLayer::Transparent].push_back(mirrorRitem.get());
 
+      XMMATRIX boxTransform = XMMatrixMultiply(XMMatrixScaling(0.5f, 0.5f, 0.5f), XMMatrixTranslation(0.0f, 2.0f, -4.0f));
+
       unique_ptr<RenderObject> boxItem = make_unique<RenderObject>();
-      XMStoreFloat4x4(&boxItem->worldTransform, (XMMatrixMultiply(XMMatrixScaling(0.5f, 0.5f, 0.5f),
-                                                                  XMMatrixTranslation(0.0f, 2.0f, -4.0f))));
+      XMStoreFloat4x4(&boxItem->worldTransform, boxTransform);
       boxItem->texTransform = MathHelper::Identity4x4();
       boxItem->objectCbIndex = 3;
       boxItem->pMat = m_materials["bricks"].get();
@@ -488,10 +505,19 @@ public:
       boxItem->baseVertexLocation = boxItem->pGeo->drawArgs["box"].baseVertexLocation;
       m_renderLayer[(int)RenderLayer::Opaque].push_back(boxItem.get());
 
+      unique_ptr<RenderObject> reflectedBox = make_unique<RenderObject>();
+      *reflectedBox = *boxItem;
+      reflectedBox->objectCbIndex = 4;
+      XMVECTOR mirrorPlane = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f); // xy plane
+      XMMATRIX R = XMMatrixReflect(mirrorPlane);
+      XMStoreFloat4x4(&reflectedBox->worldTransform, XMMatrixMultiply(boxTransform, R));
+      m_renderLayer[(int)RenderLayer::Reflected].push_back(reflectedBox.get());
+
       m_allRenderObjects.push_back(std::move(floorRitem));
       m_allRenderObjects.push_back(std::move(wallsRitem));
       m_allRenderObjects.push_back(std::move(mirrorRitem));
       m_allRenderObjects.push_back(std::move(boxItem));
+      m_allRenderObjects.push_back(std::move(reflectedBox));
   }
 
   void BuildMaterials()
@@ -622,7 +648,7 @@ public:
 
     // Pipeline for marking stencil buffer with whatever is drawn next.
     CD3DX12_BLEND_DESC mirrorBlendState(D3D12_DEFAULT);
-    mirrorBlendState.RenderTarget[0].RenderTargetWriteMask = 0;
+    mirrorBlendState.RenderTarget[0].RenderTargetWriteMask = 0; // Do not write anything to the RT?
 
     D3D12_DEPTH_STENCIL_DESC mirrorDSState;
     mirrorDSState.DepthEnable = true;
@@ -632,9 +658,9 @@ public:
     mirrorDSState.StencilReadMask = 0xff;
     mirrorDSState.StencilWriteMask = 0xff;
 
-    mirrorDSState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
-    mirrorDSState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
-    mirrorDSState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_REPLACE;
+    mirrorDSState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP; // Keep dst value?
+    mirrorDSState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;      // Keep dst (original) value?
+    mirrorDSState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_REPLACE;   // Replace with new value (src)?
     mirrorDSState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
 
     mirrorDSState.BackFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
@@ -648,8 +674,33 @@ public:
     ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&markMirrorsPsoDesc,
                                                            IID_PPV_ARGS(&m_pipelines["markStencilMirrors"])));
 
-  }
 
+    CD3DX12_DEPTH_STENCIL_DESC reflectDSS;
+    reflectDSS.DepthEnable = true;
+    reflectDSS.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    reflectDSS.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    reflectDSS.StencilEnable = true;
+    reflectDSS.StencilReadMask = 0xff;
+    reflectDSS.StencilWriteMask = 0xff;
+
+    reflectDSS.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    reflectDSS.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+    reflectDSS.FrontFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
+    reflectDSS.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_EQUAL; // Keep is region equal to stencil ref?
+
+    reflectDSS.BackFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    reflectDSS.BackFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+    reflectDSS.BackFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
+    reflectDSS.BackFace.StencilFunc = D3D12_COMPARISON_FUNC_EQUAL;
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC reflectPSODesc;
+    reflectPSODesc = opaquePsoDesc;
+    reflectPSODesc.DepthStencilState = reflectDSS;
+    reflectPSODesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+    reflectPSODesc.RasterizerState.FrontCounterClockwise = true;
+    ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&reflectPSODesc,
+        IID_PPV_ARGS(&m_pipelines["drawReflectedObjects"])));
+  }
 
   virtual bool Initialize() override
   {
@@ -664,7 +715,7 @@ public:
         BuildMaterials();
         BuildShaderViews();
         BuildPipelines();
-        BuildRenderItems();
+        BuildRenderObjects();
 
         // After writing the commands needed to build resources, which involves uploading
         // some of them to GPU memory, submit the commands.
