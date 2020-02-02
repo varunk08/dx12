@@ -12,7 +12,7 @@ using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
 
-const uint32_t NumObjects = 5;
+const uint32_t NumObjects = 6;
 
 enum class RenderLayer : int
 {
@@ -447,7 +447,6 @@ public:
       boxGeo->indexBufferByteSize = boxIbByteSize;
       boxGeo->drawArgs["box"] = boxSubmesh;
 
-
       m_geometries[boxGeo->name] = std::move(boxGeo); // box
       m_geometries[geo->name] = std::move(geo); // room
   }
@@ -512,12 +511,19 @@ public:
       XMMATRIX R = XMMatrixReflect(mirrorPlane);
       XMStoreFloat4x4(&reflectedBox->worldTransform, XMMatrixMultiply(boxTransform, R));
       m_renderLayer[(int)RenderLayer::Reflected].push_back(reflectedBox.get());
+      
+      unique_ptr<RenderObject> reflectedFloor = make_unique<RenderObject>();
+      *reflectedFloor = *floorRitem;
+      reflectedFloor->objectCbIndex = 5;
+      XMStoreFloat4x4(&reflectedFloor->worldTransform, R);
+      m_renderLayer[(int)RenderLayer::Reflected].push_back(reflectedFloor.get());
 
       m_allRenderObjects.push_back(std::move(floorRitem));
       m_allRenderObjects.push_back(std::move(wallsRitem));
       m_allRenderObjects.push_back(std::move(mirrorRitem));
       m_allRenderObjects.push_back(std::move(boxItem));
       m_allRenderObjects.push_back(std::move(reflectedBox));
+      m_allRenderObjects.push_back(std::move(reflectedFloor));
   }
 
   void BuildMaterials()
