@@ -89,6 +89,9 @@ public:
 };
 
 // ====================================================================================================================
+// - Compile shader.
+// - Calculate CB byte size.
+// - Create a default buffer.
 class BaseUtil
 {
 public:
