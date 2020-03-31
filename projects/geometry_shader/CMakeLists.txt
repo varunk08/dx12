@@ -1,0 +1,9 @@
+set (SOURCE geometry_shader.cpp)
+set (COMMON ${CMAKE_CURRENT_SOURCE_DIR}/../common)
+set (COMMON_SRC ${COMMON}/BaseApp.cpp
+                ${COMMON}/MathHelper.cpp
+                ${COMMON}/BaseTimer.cpp
+                ${COMMON}/GeometryGenerator.cpp
+                ${COMMON}/DDSTextureLoader.cpp)
+
+add_executable(geometry_shader ${SOURCE} ${COMMON_SRC})
