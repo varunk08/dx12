@@ -211,7 +211,7 @@ public:
       UpdatePassCB();
       UpdateObjectCBs();
   }
-  
+
   void DrawRenderObjects(ID3D12GraphicsCommandList* pCmdList, vector<RenderObject*>& renderObjects)
   {
       const unsigned int objCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(ObjectCb));
@@ -511,7 +511,7 @@ public:
       XMMATRIX R = XMMatrixReflect(mirrorPlane);
       XMStoreFloat4x4(&reflectedBox->worldTransform, XMMatrixMultiply(boxTransform, R));
       m_renderLayer[(int)RenderLayer::Reflected].push_back(reflectedBox.get());
-      
+
       unique_ptr<RenderObject> reflectedFloor = make_unique<RenderObject>();
       *reflectedFloor = *floorRitem;
       reflectedFloor->objectCbIndex = 5;

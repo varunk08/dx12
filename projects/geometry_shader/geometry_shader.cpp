@@ -38,6 +38,7 @@ public:
 
   virtual void OnResize()override
   {
+      BaseApp::OnResize();
   }
 
   void UpdateObjectCBs()
@@ -54,11 +55,58 @@ public:
 
   virtual void Update(const BaseTimer& gt)override
   {
+      if ((m_currentFence != 0) && (m_fence->GetCompletedValue() < m_currentFence)) {
+          HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
+          ThrowIfFailed(m_fence->SetEventOnCompletion(m_currentFence, eventHandle));
+          WaitForSingleObject(eventHandle, INFINITE);
+          CloseHandle(eventHandle);
+      }
   }
 
   virtual void Draw(const BaseTimer& gt)override
   {
+      ThrowIfFailed(m_directCmdListAlloc->Reset());
+      ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
 
+      m_commandList->RSSetViewports(1, &m_screenViewport);
+      m_commandList->RSSetScissorRects(1, &m_scissorRect);
+
+      // Transition the back buffer so we can render to it.
+      m_commandList->ResourceBarrier(1,
+        &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+
+      m_commandList->ClearRenderTargetView(CurrentBackBufferView(),
+                                           DirectX::Colors::Gray,
+                                           0,
+                                           nullptr);
+
+      m_commandList->ClearDepthStencilView(DepthStencilView(),
+                                           D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+                                           1.0f,
+                                           0,
+                                           0,
+                                           nullptr);
+
+      m_commandList->OMSetRenderTargets(1,                        // Num render target descriptors
+                                        &CurrentBackBufferView(), // handle to rt
+                                        true,                     // descriptors are contiguous
+                                        &DepthStencilView());     // handle to ds
+
+      // Transition the render target back to be presentable.
+      m_commandList->ResourceBarrier(1,
+                                     &CD3DX12_RESOURCE_BARRIER::Transition(
+                                         CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+
+      ThrowIfFailed(m_commandList->Close());
+      ID3D12CommandList* command_lists[] = { m_commandList.Get() };
+      m_commandQueue->ExecuteCommandLists(_countof(command_lists), command_lists);
+
+      // Present current swap chain buffer and advance to next buffer.
+      ThrowIfFailed(m_swapChain->Present(0, 0));
+      m_currBackBuffer = (m_currBackBuffer + 1) % SwapChainBufferCount;
+
+      ++m_currentFence;
+      m_commandQueue->Signal(m_fence.Get(), m_currentFence);
   }
 
   virtual void OnMouseDown(WPARAM btnState, int x, int y)override
@@ -118,6 +166,26 @@ public:
 
   virtual bool Initialize() override
   {
+      bool res = BaseApp::Initialize();
+
+      if (res) {
+          ThrowIfFailed(m_commandList.Get()->Reset(m_directCmdListAlloc.Get(), nullptr));
+
+          BuildSceneGeometry();
+          BuildPipelines();
+
+          // After writing the commands needed to build resources, which involves uploading
+          // some of them to GPU memory, submit the commands.
+          ThrowIfFailed(m_commandList->Close());
+          ID3D12CommandList* cmdLists[] = { m_commandList.Get() };
+          m_commandQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
+          FlushCommandQueue(); // Queue-submit.
+      }
+      else {
+          ::OutputDebugStringA("Error initializing the geometry shader demo!\n");
+      }
+
+      return res;
   }
 
   // Member variables.
@@ -149,11 +217,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR cmdLine, i
 /************************************************************************
 
 Geometry shader app demo:
+- simple first step: renders a set of points as quads
 
-- clear screen
-- render points randomly
-- convert points to quads using the GS
-- texture the quads
-- optionally animate the textures
+- build pipeline
+- build scene geometry, of some points
+- build command buffer, implement draw function
 
  ***********************************************************************/
