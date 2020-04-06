@@ -96,7 +96,7 @@ struct MeshGeometry
 class BasicBox : public BaseApp
 {
 public:
-	
+
     BasicBox(HINSTANCE hInstance);
 
     // tell mr. compiler not to generate these default functions
@@ -129,7 +129,7 @@ private:
     ComPtr<ID3DBlob> m_vsByteCode                             = nullptr;
     ComPtr<ID3DBlob> m_psByteCode                             = nullptr;
     ComPtr<ID3D12PipelineState> m_pso                         = nullptr;
-    
+
     std::vector<D3D12_INPUT_ELEMENT_DESC> m_inputLayout;
 
     XMFLOAT4X4 m_world = MathHelper::Identity4x4();
@@ -174,7 +174,7 @@ bool BasicBox::Initialize()
         ThrowIfFailed(m_commandList->Close());
         ID3D12CommandList* cmdsLists[] = { m_commandList.Get() };
         m_commandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-    
+
         FlushCommandQueue();
     }
 
@@ -332,14 +332,14 @@ void BasicBox::OnMouseMove(WPARAM btnState, int x, int y)
     m_lastMousePos.y = y;
 }
 
-// ==========================================================================================
+// =====================================================================================================================
 void BasicBox::BuildPSO()
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = { };
     ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
 
     psoDesc.InputLayout =
-    { 
+    {
         m_inputLayout.data(), (UINT) m_inputLayout.size()
     };
 
@@ -349,7 +349,7 @@ void BasicBox::BuildPSO()
         reinterpret_cast<BYTE*>(m_vsByteCode->GetBufferPointer()),
         m_vsByteCode->GetBufferSize()
     };
-    
+
     psoDesc.PS =
     {
         reinterpret_cast<BYTE*>(m_psByteCode->GetBufferPointer()),
@@ -371,6 +371,7 @@ void BasicBox::BuildPSO()
     ThrowIfFailed(hr);
 }
 
+// =====================================================================================================================
 void BasicBox::BuildBoxGeometry()
 {
     std::array<Vertex, 8> vertices =
@@ -450,7 +451,7 @@ void BasicBox::BuildBoxGeometry()
     m_boxGeo->drawArgs["box"] = subMesh;
 }
 
-// ====================================================================================================================
+// =====================================================================================================================
 void BasicBox::BuildShadersAndInputLayout()
 {
     HRESULT hr = S_OK;
@@ -518,7 +519,7 @@ void BasicBox::BuildDescriptorHeaps()
 void BasicBox::BuildConstantBuffers()
 {
     m_objectCb = std::make_unique<UploadBuffer<ObjectConstants>>(m_d3dDevice.Get(), 1, true);
-    
+
     UINT objCbBytes                         = BaseUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
     D3D12_GPU_VIRTUAL_ADDRESS cbGpuVirtAddr = m_objectCb->Resource()->GetGPUVirtualAddress();
 

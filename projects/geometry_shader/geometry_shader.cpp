@@ -12,6 +12,13 @@ using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
 
+// Common types used in this demo.
+
+struct ShaderVertex
+{
+    XMFLOAT3 position;
+};
+
 // Our stenciling demo app, derived from the BaseApp ofcourse.
 class GSDemo final : public BaseApp
 {
@@ -73,7 +80,9 @@ public:
 
       // Transition the back buffer so we can render to it.
       m_commandList->ResourceBarrier(1,
-        &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+                                     &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                                                                           D3D12_RESOURCE_STATE_PRESENT,
+                                                                           D3D12_RESOURCE_STATE_RENDER_TARGET));
 
       m_commandList->ClearRenderTargetView(CurrentBackBufferView(),
                                            DirectX::Colors::Gray,
@@ -94,8 +103,9 @@ public:
 
       // Transition the render target back to be presentable.
       m_commandList->ResourceBarrier(1,
-                                     &CD3DX12_RESOURCE_BARRIER::Transition(
-                                         CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+                                     &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                                                                           D3D12_RESOURCE_STATE_RENDER_TARGET,
+                                                                           D3D12_RESOURCE_STATE_PRESENT));
 
       ThrowIfFailed(m_commandList->Close());
       ID3D12CommandList* command_lists[] = { m_commandList.Get() };
@@ -127,7 +137,34 @@ public:
 
   void BuildSceneGeometry()
   {
+      std::array<ShaderVertex, 10> points = {
+          ShaderVertex({XMFLOAT3(+0.2f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-0.2f, -1.0f, +1.0f)}),
+          ShaderVertex({XMFLOAT3(+0.4f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-0.4f, -1.0f, +1.0f)}),
+          ShaderVertex({XMFLOAT3(+0.6f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-0.6f, -1.0f, +1.0f)}),
+          ShaderVertex({XMFLOAT3(+0.8f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-0.8f, -1.0f, +1.0f)}),
+          ShaderVertex({XMFLOAT3(+1.0f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-1.0f, -1.0f, +1.0f)}),
+      };
 
+      const UINT vbByteSize = (UINT)points.size() * sizeof(ShaderVertex);
+      pGeometry_ = std::make_unique<MeshGeometry>();
+      pGeometry_->name = "points";
+
+      ThrowIfFailed(D3DCreateBlob(vbByteSize, &pGeometry_->vertexBufferCPU));
+      CopyMemory(pGeometry_->vertexBufferCPU->GetBufferPointer(), points.data(), vbByteSize);
+
+      pGeometry_->vertexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+                                                                  m_commandList.Get(),
+                                                                  points.data(),
+                                                                  vbByteSize,
+                                                                  pGeometry_->vertexBufferUploader);
+
+      pGeometry_->vertexByteStride = sizeof(ShaderVertex);
+      pGeometry_->vertexBufferByteSize = vbByteSize;
+
+      SubmeshGeometry subMesh = {};
+      subMesh.baseVertexLocation = 0;
+
+      pGeometry_->drawArgs["points"] = subMesh;
   }
 
   void BuildRenderObjects()
@@ -140,7 +177,16 @@ public:
 
   void BuildShadersAndInputLayout()
   {
+      HRESULT hr = S_OK;
 
+      vsByteCode_ = BaseUtil::CompileShader(L"shaders\\pointToQuad.hlsl", nullptr, "VS", "vs_5_0");
+      gsByteCode_ = BaseUtil::CompileShader(L"shaders\\pointToQuad.hlsl", nullptr, "GS", "gs_5_0");
+      psByteCode_ = BaseUtil::CompileShader(L"shaders\\pointToQuad.hlsl", nullptr, "PS", "ps_5_0");
+
+      inputLayout_ =
+      {
+          { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+      };
   }
 
   void BuildRootSignature()
@@ -172,6 +218,7 @@ public:
           ThrowIfFailed(m_commandList.Get()->Reset(m_directCmdListAlloc.Get(), nullptr));
 
           BuildSceneGeometry();
+          BuildShadersAndInputLayout();
           BuildPipelines();
 
           // After writing the commands needed to build resources, which involves uploading
@@ -189,6 +236,15 @@ public:
   }
 
   // Member variables.
+  std::unique_ptr<MeshGeometry> pGeometry_ = nullptr;
+  ComPtr<ID3DBlob> vsByteCode_             = nullptr;
+  ComPtr<ID3DBlob> gsByteCode_             = nullptr;
+  ComPtr<ID3DBlob> psByteCode_             = nullptr;
+  ComPtr<ID3D12PipelineState> pso_         = nullptr;
+
+  std::vector<D3D12_INPUT_ELEMENT_DESC> inputLayout_;
+
+
 }; // Class StencilDemo
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR cmdLine, int showCmd)
@@ -217,10 +273,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR cmdLine, i
 /************************************************************************
 
 Geometry shader app demo:
-- simple first step: renders a set of points as quads
 
+- build command buffer, implement draw function
+- build shaders
+
+- simple first step: renders a set of points as quads
 - build pipeline
 - build scene geometry, of some points
-- build command buffer, implement draw function
+
 
  ***********************************************************************/

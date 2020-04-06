@@ -59,7 +59,7 @@ protected:
 
     static BaseApp*  mApp;
     static const int SwapChainBufferCount = 2;
-  
+
     // App properties
     BaseTimer m_timer;
     bool      m_appPaused = false;
