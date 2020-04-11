@@ -35,6 +35,9 @@
 *.vcxproj
 *.vcxproj.filters
 
+# VS Code files
+*.vscode
+
 # Cmake cache files
 CMakeFiles/
 *.cmake

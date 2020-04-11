@@ -1,30 +1,30 @@
-cbuffer cbPerObject : register(b0)
+cbuffer ShaderMvpCb : register(b0)
 {
     float4x4 gWorldViewProj;
 };
 
-struct VertexIn
+struct VsIn
 {
     float3 position : POSITION;
 };
 
-struct VertexOut
+struct VsOut
 {
-    float4 posHomogenous : SV_POSITION;
+    float4 posWorld : SV_POSITION;
 };
 
-VertexOut VS(VertexIn vin)
+VsOut VS(VsIn vin)
 {
-    VertexOut vout;
+    VsOut vout;
 
     // Transform to homogeneous clip space.
-    vout.posHomogenous = mul(float4(vin.position, 1.0f), gWorldViewProj);
+    vout.posWorld = mul(float4(vin.position, 1.0f), gWorldViewProj);
 
     return vout;
 };
 
 
-float4 PS(VertexOut fromVs) : SV_TARGET
+float4 PS(VsOut fromVs) : SV_TARGET
 {
     return float4 (1.0f, 0.8f, 0.8f, 1.0f);
 };
