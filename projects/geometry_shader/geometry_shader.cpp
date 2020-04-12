@@ -406,10 +406,7 @@ Geometry shader app demo:
 - build shaders stubs
 - build pipeline
 - build root signature.
-
 - render a set of points
 - renders a set of points as quads
-- build scene geometry, of some points
-
 
  ***********************************************************************/
