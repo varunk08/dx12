@@ -28,6 +28,7 @@ set (PROJECTS
      blending
      stenciling
      geometry_shader
-     compute_shader)
+     compute_shader
+     compute_add)
 
 buildAllProjects()
