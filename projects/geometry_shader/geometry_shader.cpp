@@ -19,11 +19,11 @@ struct ShaderVertex
 };
 
 constexpr std::array<ShaderVertex, 10> points = {
-          ShaderVertex({XMFLOAT3(+0.2f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-0.2f, -1.0f, +1.0f)}),
-          ShaderVertex({XMFLOAT3(+0.4f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-0.4f, -1.0f, +1.0f)}),
-          ShaderVertex({XMFLOAT3(+0.6f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-0.6f, -1.0f, +1.0f)}),
-          ShaderVertex({XMFLOAT3(+0.8f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-0.8f, -1.0f, +1.0f)}),
-          ShaderVertex({XMFLOAT3(+1.0f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-1.0f, -1.0f, +1.0f)}),
+          ShaderVertex({XMFLOAT3(+0.0f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-0.4f, -1.0f, +1.0f)}),
+          ShaderVertex({XMFLOAT3(+0.4f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-0.8f, -1.0f, +1.0f)}),
+          ShaderVertex({XMFLOAT3(+0.8f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-1.2f, -1.0f, +1.0f)}),
+          ShaderVertex({XMFLOAT3(+1.2f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-1.6f, -1.0f, +1.0f)}),
+          ShaderVertex({XMFLOAT3(+1.6f, -1.0f, +1.0f)}), ShaderVertex({XMFLOAT3(-2.0f, -1.0f, +1.0f)}),
       };
 
 
@@ -231,7 +231,7 @@ public:
       HRESULT hr = S_OK;
 
       shaders_["vertexShader"] = BaseUtil::CompileShader(L"shaders\\pointToQuad.hlsl", nullptr, "VS", "vs_5_0");
-      //shaders_["geomShader"] = BaseUtil::CompileShader(L"shaders\\pointToQuad.hlsl", nullptr, "GS", "gs_5_0");
+      shaders_["geomShader"] = BaseUtil::CompileShader(L"shaders\\pointToQuad.hlsl", nullptr, "GS", "gs_5_0");
       shaders_["pixelShader"] = BaseUtil::CompileShader(L"shaders\\pointToQuad.hlsl", nullptr, "PS", "ps_5_0");
 
       inputLayout_ =
@@ -312,10 +312,11 @@ public:
     pipeState.pRootSignature = rootSignature_.Get();
     pipeState.VS = { reinterpret_cast<BYTE*>(shaders_["vertexShader"]->GetBufferPointer()), shaders_["vertexShader"]->GetBufferSize() };
     pipeState.PS = { reinterpret_cast<BYTE*>(shaders_["pixelShader"]->GetBufferPointer()), shaders_["pixelShader"]->GetBufferSize() };
-    //pipeState.GS = { reinterpret_cast<BYTE*>(shaders_["geomShader"]->GetBufferPointer()), shaders_["geomShader"]->GetBufferSize() };
+    pipeState.GS = { reinterpret_cast<BYTE*>(shaders_["geomShader"]->GetBufferPointer()), shaders_["geomShader"]->GetBufferSize() };
 
     pipeState.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    //pipeState.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    pipeState.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    pipeState.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
     pipeState.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     pipeState.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     pipeState.SampleMask = UINT_MAX;
@@ -364,7 +365,7 @@ public:
   POINT lastMousePos_;
   float theta_ = 1.5f * XM_PI;
   float phi_ = 0.2f * XM_PI;
-  float radius_ = 15.0f;
+  float radius_ = 5.0f;
   XMFLOAT3 eyePos_ = {0.0f, 0.0f, 0.0f };
   XMFLOAT4X4 view_ = MathHelper::Identity4x4();
   XMFLOAT4X4 proj_ = MathHelper::Identity4x4();
