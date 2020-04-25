@@ -12,6 +12,58 @@ using namespace std;
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
+// ====================================================================================================================
+class BlurFilter
+{
+public:
+  BlurFilter(ID3D12Device* pDevice, UINT width, UINT height, DXGI_FORMAT format)
+  : pDevice_(pDevice), width_(width), height_(height), format_(format)
+  {
+    BuildResources();
+  }
+
+  ~BlurFilter() {}
+
+  ID3D12Resource* Output() { return blurMap0_.Get();}
+  void BuildDescriptors(CD3DX12_CPU_DESCRIPTOR_HANDLE hCpuDesc, CD3DX12_GPU_DESCRIPTOR_HANDLE hGpuDesc, UINT descSize)
+  {
+
+  }
+  void OnResize(UINT newWidth, UINT newHeight)
+  {
+
+  }
+  void Execute(ID3D12GraphicsCommandList* pCmdList, ID3D12RootSignature* pRootSig, ID3D12PipelineState* pHorBlurPso, ID3D12PipelineState* pVertBlurPso, ID3D12Resource* pInput, int blurCount)
+  {
+
+  }
+
+private:
+  std::vector<float> CalcGaussWeights(float sigma);
+  void BuildDescriptorsInternal();
+  void BuildResources()
+  {
+    
+  }
+
+  const int MaxBlurRadius = 5;
+  ID3D12Device* pDevice_ = nullptr;
+  UINT width_ = 0;
+  UINT height_=0;
+  DXGI_FORMAT format_=DXGI_FORMAT_R8G8B8A8_UNORM;
+  CD3DX12_CPU_DESCRIPTOR_HANDLE blur0CpuSrv_;
+  CD3DX12_CPU_DESCRIPTOR_HANDLE blur0CpuUav_;
+  CD3DX12_CPU_DESCRIPTOR_HANDLE blur1CpuSrv_;
+  CD3DX12_CPU_DESCRIPTOR_HANDLE blur1CpuUav_;
+  CD3DX12_GPU_DESCRIPTOR_HANDLE blur0GpuSrv_;
+  CD3DX12_GPU_DESCRIPTOR_HANDLE blur0GpuUav_;
+  CD3DX12_GPU_DESCRIPTOR_HANDLE blur1GpuSrv_;
+  CD3DX12_GPU_DESCRIPTOR_HANDLE blur1GpuUav_;
+  ComPtr<ID3D12Resource> blurMap0_ = nullptr;
+  ComPtr<ID3D12Resource> blurMap1_ = nullptr;
+};
+
+// ====================================================================================================================
 // The vertex shader expects vertex data in this layout.
 struct ShaderVertex
 {
@@ -91,6 +143,7 @@ struct VertexInfo
   DirectX::XMFLOAT2 texC_;
 };
 
+// ====================================================================================================================
 // Represents a complete mesh that can be rendered.
 struct MeshData
 {
@@ -126,6 +179,7 @@ private:
   std::vector<uint16_t> indices16_;
 };
 
+// ====================================================================================================================
 // Class to generate geometry for the demo.
 class GeometryGenerator
 {
@@ -158,16 +212,17 @@ struct RenderObject
   int                      objectCbIndex = -1;
 };
 
+// ====================================================================================================================
 // Current demo class to handle user input and to setup demo-specific resource and commands.
-class BlendApp : public BaseApp
+class BlurDemo : public BaseApp
 {
 public:
-  BlendApp(HINSTANCE hInst);
-  ~BlendApp();
+  BlurDemo(HINSTANCE hInst);
+  ~BlurDemo();
 
   // Delete copy and assign.
-  BlendApp(const BlendApp& app) = delete;
-  BlendApp& operator=(const BlendApp& app) = delete;
+  BlurDemo(const BlurDemo& app) = delete;
+  BlurDemo& operator=(const BlurDemo& app) = delete;
 
   bool Initialize() override;
 
@@ -210,6 +265,7 @@ private:
   std::unique_ptr<UploadBuffer<ObjectConstants>>                 objectCb_ = nullptr;
   std::unordered_map<std::string, std::unique_ptr<Texture>>      textures_;
   std::unordered_map<std::string, std::unique_ptr<MaterialInfo>> materials;
+  std::unique_ptr<BlurFilter>                                    blurFilter_;
 
   // Matrices
   XMFLOAT4X4                                                     view_ = MathHelper::Identity4x4();
@@ -229,7 +285,7 @@ private:
 };
 
 // Demo constructor.
-BlendApp::BlendApp(HINSTANCE h_inst)
+BlurDemo::BlurDemo(HINSTANCE h_inst)
   :
   BaseApp(h_inst)
 {
@@ -237,7 +293,7 @@ BlendApp::BlendApp(HINSTANCE h_inst)
 }
 
 // Destructor flushes command queue
-BlendApp::~BlendApp()
+BlurDemo::~BlurDemo()
 {
   if (m_d3dDevice != nullptr){
     FlushCommandQueue();
@@ -245,13 +301,15 @@ BlendApp::~BlendApp()
 }
 
 // Calls base app to set up windows and d3d and this demo's resources
-bool BlendApp::Initialize()
+bool BlurDemo::Initialize()
 {
   bool ret = BaseApp::Initialize();
 
   if (ret == true) {
     ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
     m_cbvSrvUavDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    blurFilter_ = std::make_unique<BlurFilter>(m_d3dDevice.Get(), m_clientWidth, m_clientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
 
     LoadTextures();
     BuildTerrainGeometry();
@@ -279,7 +337,7 @@ bool BlendApp::Initialize()
 }
 
 // Updates resource state for a frame.
-void BlendApp::Update(const BaseTimer& timer)
+void BlurDemo::Update(const BaseTimer& timer)
 {
   // Update the pass constants that will be written to the const buffer.
   // Update the MVP matrix.
@@ -328,7 +386,7 @@ void BlendApp::Update(const BaseTimer& timer)
   UpdateObjectConstants();
 }
 
-void BlendApp::UpdateObjectConstants()
+void BlurDemo::UpdateObjectConstants()
 {
   for (auto& renderObj : allRenderObjects) {
       ObjectConstants newObjConsts = {};
@@ -340,7 +398,7 @@ void BlendApp::UpdateObjectConstants()
 }
 
 // Animates each of the dynamic materials in this demo.
-void BlendApp::AnimateMaterials(const BaseTimer& timer)
+void BlurDemo::AnimateMaterials(const BaseTimer& timer)
 {
   auto pWater = materials["water"].get();
   float& tu = pWater->materialTransform(3, 0);
@@ -362,7 +420,7 @@ void BlendApp::AnimateMaterials(const BaseTimer& timer)
 }
 
 // Updates material transforms in the material const buffers with the latest transforms.
-void BlendApp::UpdateMaterials(const BaseTimer& timer)
+void BlurDemo::UpdateMaterials(const BaseTimer& timer)
 {
   for (auto& mat : materials) {
     MaterialInfo* pMat = mat.second.get();
@@ -376,7 +434,7 @@ void BlendApp::UpdateMaterials(const BaseTimer& timer)
 }
 
 // Must update the projection matrix on resizing.
-void BlendApp::OnResize()
+void BlurDemo::OnResize()
 {
   // Base app updates swap chain buffers, RT, DS buffer sizes, viewport and scissor rects etc.
   BaseApp::OnResize();
@@ -387,7 +445,7 @@ void BlendApp::OnResize()
 }
 
 // Writes draw commands for a frame.
-void BlendApp::Draw(const BaseTimer& timer)
+void BlurDemo::Draw(const BaseTimer& timer)
 {
   ThrowIfFailed(m_directCmdListAlloc->Reset());
   ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), pipelines_["std_gfx_pipe"].Get()));
@@ -446,7 +504,7 @@ void BlendApp::Draw(const BaseTimer& timer)
 }
 
 // Submits the draw calls to render each object in the scene.
-void BlendApp::DrawRenderObjects()
+void BlurDemo::DrawRenderObjects()
 {
   UINT mat_cb_byte_size = BaseUtil::CalcConstantBufferByteSize(sizeof(ShaderMaterialCb));
   UINT objectCbByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -481,13 +539,13 @@ void BlendApp::DrawRenderObjects()
 }
 
 // Applies y=f(x,z) to the values provided.
-float BlendApp::GetHillsHeight(float x, float z) const
+float BlurDemo::GetHillsHeight(float x, float z) const
 {
   return 0.3f * (z * sinf(0.1f * x) + x * cosf(0.1f * z));
 }
 
 // Builds all materials used in this demo.
-void BlendApp::BuildMaterials()
+void BlurDemo::BuildMaterials()
 {
   auto grass = std::make_unique<MaterialInfo>();
   grass->name = "grass";
@@ -504,7 +562,7 @@ void BlendApp::BuildMaterials()
 }
 
 // Function to generate terrain geometry
-void BlendApp::BuildTerrainGeometry()
+void BlurDemo::BuildTerrainGeometry()
 {
   GeometryGenerator geoGen;
 
@@ -567,7 +625,7 @@ void BlendApp::BuildTerrainGeometry()
 }
 
 //Builds a grid representing water and adds it to the global geometries map.
-void BlendApp::BuildWaterGeometry()
+void BlurDemo::BuildWaterGeometry()
 {
   GeometryGenerator geoGen;
   MeshData water_grid = geoGen.CreateGrid(200.0f, 200.0f, 50, 50);
@@ -619,7 +677,7 @@ void BlendApp::BuildWaterGeometry()
 }
 
 // Builds list of objects to rendered as a scene.
-void BlendApp::BuildRenderObjects()
+void BlurDemo::BuildRenderObjects()
 {
   auto water = std::make_unique<RenderObject>();
   water->worldTransform = MathHelper::Identity4x4(); // We're not transforming the object.
@@ -644,7 +702,7 @@ void BlendApp::BuildRenderObjects()
 }
 
 // Builds input layout.
-void BlendApp::BuildInputLayout()
+void BlurDemo::BuildInputLayout()
 {
   inputLayout_ =
     {
@@ -655,7 +713,7 @@ void BlendApp::BuildInputLayout()
 }
 
 // Builds shaders needed for this demo.
-void BlendApp::BuildShaders()
+void BlurDemo::BuildShaders()
 {
   // Shader define for fog.
   const D3D_SHADER_MACRO defines[] =
@@ -667,27 +725,6 @@ void BlendApp::BuildShaders()
   shaders_["std_vs"] = BaseUtil::CompileShader(L"shaders\\blending.hlsl", nullptr, "VS", "vs_5_1");
   shaders_["std_ps"] = BaseUtil::CompileShader(L"shaders\\blending.hlsl", defines, "PS", "ps_5_1");
 }
-
-// Windows main function to setup and go into Run() loop.
-int WINAPI WinMain(HINSTANCE hInstance,
-                   HINSTANCE hPrevInstance,
-                   PSTR      pCmdLine,
-                   int       nShowCmd)
-{
-#if defined(DEBUG) | defined(_DEBUG)
-  _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
-#endif
-
-  auto ret_code = 0;
-  BlendApp demo_app(hInstance);
-
-  if (demo_app.Initialize() == true) {
-    ret_code = demo_app.Run();
-  }
-
-  return ret_code;
-}
-
 
 // Implementations of helper classes and functions.
 MeshData GeometryGenerator::CreateGrid(float width, float depth, uint32_t m, uint32_t n)
@@ -747,7 +784,7 @@ MeshData GeometryGenerator::CreateGrid(float width, float depth, uint32_t m, uin
 }
 
 // Builds the pipelines required for this demo.
-void BlendApp::BuildPipelines()
+void BlurDemo::BuildPipelines()
 {
   D3D12_GRAPHICS_PIPELINE_STATE_DESC std_gfx_pipe = {};
   ZeroMemory(&std_gfx_pipe, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -796,7 +833,7 @@ void BlendApp::BuildPipelines()
 }
 
 // Creates descriptor heaps for the resources used by this demo's pipelines.
-void BlendApp::BuildDescriptorHeaps()
+void BlurDemo::BuildDescriptorHeaps()
 {
   // Create heap for SRVs for textures used in this demo.
   D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc;
@@ -809,7 +846,7 @@ void BlendApp::BuildDescriptorHeaps()
 }
 
 // Creates CBV for the world view projection matrix and SRVs for the textures used for this demo.
-void BlendApp::BuildBufferViews()
+void BlurDemo::BuildBufferViews()
 {
   // Create a const buffer for the world view projection matrix.
   passCb_ = std::make_unique<UploadBuffer<PassConstants>>(m_d3dDevice.Get(),
@@ -850,7 +887,7 @@ void BlendApp::BuildBufferViews()
 }
 
 // Builds the root signature for this demo.
-void BlendApp::BuildRootSignature()
+void BlurDemo::BuildRootSignature()
 {
   /* My root signature:
 
@@ -908,7 +945,7 @@ void BlendApp::BuildRootSignature()
 }
 
 // When the mouse button is pressed down.
-void BlendApp::OnMouseDown(WPARAM btnState, int x, int y)
+void BlurDemo::OnMouseDown(WPARAM btnState, int x, int y)
 {
   lastMousePos_.x = x;
   lastMousePos_.y = y;
@@ -918,14 +955,14 @@ void BlendApp::OnMouseDown(WPARAM btnState, int x, int y)
 }
 
 // When the pressed mouse button is released.
-void BlendApp::OnMouseUp(WPARAM btnState, int x, int y)
+void BlurDemo::OnMouseUp(WPARAM btnState, int x, int y)
 {
   // Release the captured mouse to the OS.
   ReleaseCapture();
 }
 
 // When the mouse is moved.
-void BlendApp::OnMouseMove(WPARAM btn_state, int x, int y)
+void BlurDemo::OnMouseMove(WPARAM btn_state, int x, int y)
 {
   if ((btn_state & MK_LBUTTON) != 0) { // Left mouse button changes angle of view.
     float dx = XMConvertToRadians(0.25f * static_cast<float>(x - lastMousePos_.x));
@@ -947,11 +984,11 @@ void BlendApp::OnMouseMove(WPARAM btn_state, int x, int y)
 }
 
 // When any key board key is pressed.
-void BlendApp::OnKeyDown(WPARAM wparam)
+void BlurDemo::OnKeyDown(WPARAM wparam)
 {
 }
 
-void BlendApp::LoadTextures()
+void BlurDemo::LoadTextures()
 {
   auto grass_tex = std::make_unique<Texture>();
   grass_tex->name_ = "grass_tex";
@@ -975,7 +1012,7 @@ void BlendApp::LoadTextures()
 }
 
 // Calculates the updated normals for the generated hill terrain.
-XMFLOAT3 BlendApp::GetHillsNormal(float x, float z) const
+XMFLOAT3 BlurDemo::GetHillsNormal(float x, float z) const
 {
   XMFLOAT3 n( -0.03f * z * cosf(0.1f * x) - 0.3f * cosf(0.1f * z),
               1.0f,
@@ -987,43 +1024,35 @@ XMFLOAT3 BlendApp::GetHillsNormal(float x, float z) const
   return n;
 }
 
-/**
+// ====================================================================================================================
+// Windows main function to setup and go into Run() loop.
+int WINAPI WinMain(HINSTANCE hInstance,
+                   HINSTANCE hPrevInstance,
+                   PSTR      pCmdLine,
+                   int       nShowCmd)
+{
+#if defined(DEBUG) | defined(_DEBUG)
+  _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+#endif
 
-Blending demo agenda:
-:- swapchain buffer already created in BaseApp
-:- create render target and clear to color, buffers created by BaseApp
-:- single fence for proper wait until reset
-:- Draw a single grid with mouse movements
-  :- generate mesh for grid.
-  :- create pipeline
-  :- write vertex and pixel shaders
-  :- create descriptors
-  :- create const buffer view for the world view proj matrix
-  :- create root signature
-  :- upload constant buffers
-  :- Compile shaders
-  :- bind the const buffer view to the root signature
-  :- upload vertex/index buffers
-  :- write drawing commands
-:- Create terrain geometry for land
- :- apply y=f(x,z) to grid vertices
-:- Load texture to terrain.
-  :- create descriptor for texture
-  :- shader changes required for sampling texture
-  :- update root signature
-:- Draw Mountains
-:- Water blends with other elements
-:- Draw animated water
-  :- change code to enable drawing multiple objects
-  :- animate texture in shader
-  - textured animated surface
-  - animated grid texture - do I want to this?
-:- Implement fog
-:- Implement lighting
-  :- change root signature
-  :- implement diffuse lighting.
-  :- implement specular lighting - scene doesn't have any specular lighting though.
-- Frame resources, for rendering one full frame
-- Triple buffering
+  auto ret_code = 0;
+  BlurDemo demo_app(hInstance);
 
-**/
+  if (demo_app.Initialize() == true) {
+    ret_code = demo_app.Run();
+  }
+
+  return ret_code;
+}
+
+
+// ====================================================================================================================
+/*
+BLUR COMPUTE SHADER DEMO
+
+TODO:
+- render scene to texture
+- blur rendered texture
+- present blurred texture
+
+*/
