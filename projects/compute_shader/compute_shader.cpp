@@ -25,25 +25,160 @@ public:
   ~BlurFilter() {}
 
   ID3D12Resource* Output() { return blurMap0_.Get();}
+
   void BuildDescriptors(CD3DX12_CPU_DESCRIPTOR_HANDLE hCpuDesc, CD3DX12_GPU_DESCRIPTOR_HANDLE hGpuDesc, UINT descSize)
   {
+      blur0CpuSrv_ = hCpuDesc;
+      blur0CpuUav_ = hCpuDesc.Offset(1, descSize);
+      blur1CpuSrv_ = hCpuDesc.Offset(1, descSize);
+      blur1CpuUav_ = hCpuDesc.Offset(1, descSize);
 
+      blur0GpuSrv_ = hGpuDesc;
+      blur0GpuUav_ = hGpuDesc.Offset(1, descSize);
+      blur1GpuSrv_ = hGpuDesc.Offset(1, descSize);
+      blur1GpuUav_ = hGpuDesc.Offset(1, descSize);
+
+      BuildDescriptorsInternal();
   }
+
   void OnResize(UINT newWidth, UINT newHeight)
   {
+      if ((width_ != newWidth) || (height_ != newHeight))
+      {
+          width_ = newWidth;
+          height_ = newHeight;
 
+          BuildResources();
+          BuildDescriptorsInternal();
+      }
   }
+
   void Execute(ID3D12GraphicsCommandList* pCmdList, ID3D12RootSignature* pRootSig, ID3D12PipelineState* pHorBlurPso, ID3D12PipelineState* pVertBlurPso, ID3D12Resource* pInput, int blurCount)
   {
+      auto weights = CalcGaussWeights(2.5f);
+      int blurRadius = static_cast<int>(weights.size() / 2);
+
+      pCmdList->SetComputeRootSignature(pRootSig);
+      pCmdList->SetComputeRoot32BitConstants(0, 1, &blurRadius, 0);
+      pCmdList->SetComputeRoot32BitConstants(0, static_cast<unsigned>(weights.size()), weights.data(), 1);
+
+      pCmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(pInput, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE));
+      pCmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(blurMap0_.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST));
+
+      pCmdList->CopyResource(blurMap0_.Get(), pInput);
+
+      pCmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(blurMap0_.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_GENERIC_READ));
+      pCmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(blurMap1_.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+
+      for (int i = 0; i < blurCount; ++i)
+      {
+          // Horizontal Blur pass.
+          pCmdList->SetPipelineState(pHorBlurPso);
+
+          pCmdList->SetComputeRootDescriptorTable(1, blur0GpuSrv_);
+          pCmdList->SetComputeRootDescriptorTable(2, blur1GpuUav_);
+
+          // How many groups do we need to dispatch to cover a row of pixels, where each
+          // group covers 256 pixels (the 256 is defined in the ComputeShader).
+          UINT numGroupsX = (UINT)ceilf(width_ / 256.0f);
+          pCmdList->Dispatch(numGroupsX, height_, 1);
+
+          pCmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(blurMap0_.Get(), D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+          pCmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(blurMap1_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_GENERIC_READ));
+
+          // Vertical Blur pass.
+          pCmdList->SetPipelineState(pVertBlurPso);
+
+          pCmdList->SetComputeRootDescriptorTable(1, blur1GpuSrv_);
+          pCmdList->SetComputeRootDescriptorTable(2, blur0GpuUav_);
+
+          // How many groups do we need to dispatch to cover a column of pixels, where each
+          // group covers 256 pixels  (the 256 is defined in the ComputeShader).
+          UINT numGroupsY = (UINT)ceilf(height_ / 256.0f);
+          pCmdList->Dispatch(width_, numGroupsY, 1);
+
+          pCmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(blurMap0_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_GENERIC_READ));
+          pCmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(blurMap1_.Get(), D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+      }
 
   }
 
 private:
-  std::vector<float> CalcGaussWeights(float sigma);
-  void BuildDescriptorsInternal();
+    std::vector<float> CalcGaussWeights(float sigma)
+    {
+        float twoSigma2 = 2.0f * sigma * sigma;
+        int blurRadius = static_cast<int>(ceil(2.0f * sigma));
+
+        std::vector<float> weights;
+        weights.resize(2 * blurRadius + 1);
+
+        float weightSum = 0.0f;
+
+        for (int i = -blurRadius; i <= blurRadius; i++) {
+            float x = static_cast<float>(i);
+            weights[i + blurRadius] = expf(-x * x / twoSigma2);
+            weightSum += weights[i + blurRadius];
+        }
+
+        for (auto& w : weights) {
+            w /= weightSum;
+        }
+
+        return weights;
+    }
+
+  void BuildDescriptorsInternal()
+  {
+      D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+      srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+      srvDesc.Format                  = format_;
+      srvDesc.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
+      srvDesc.Texture2D.MostDetailedMip = 0;
+      srvDesc.Texture2D.MipLevels       = 1;
+
+      D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+      uavDesc.Format                = format_;
+      uavDesc.ViewDimension         = D3D12_UAV_DIMENSION_TEXTURE2D;
+      uavDesc.Texture2D.MipSlice    = 0;
+
+
+      pDevice_->CreateShaderResourceView(blurMap0_.Get(), &srvDesc, blur0CpuSrv_);
+      pDevice_->CreateUnorderedAccessView(blurMap0_.Get(), nullptr, &uavDesc, blur0CpuUav_);
+
+      pDevice_->CreateShaderResourceView(blurMap1_.Get(), &srvDesc, blur1CpuSrv_);
+      pDevice_->CreateUnorderedAccessView(blurMap1_.Get(), nullptr, &uavDesc, blur1CpuUav_);
+  }
+
   void BuildResources()
   {
-    
+      D3D12_RESOURCE_DESC texDesc;
+      ZeroMemory(&texDesc, sizeof(D3D12_RESOURCE_DESC));
+      texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+      texDesc.Alignment = 0;
+      texDesc.Width = width_;
+      texDesc.Height = height_;
+      texDesc.DepthOrArraySize = 1;
+      texDesc.MipLevels = 1;
+      texDesc.Format = format_;
+      texDesc.SampleDesc.Count = 1;
+      texDesc.SampleDesc.Quality = 0;
+      texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+      texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+      ThrowIfFailed(pDevice_->CreateCommittedResource(&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+                                                      D3D12_HEAP_FLAG_NONE,
+                                                      &texDesc,
+                                                      D3D12_RESOURCE_STATE_COMMON,
+                                                      nullptr,
+                                                      IID_PPV_ARGS(&blurMap0_)));
+
+      ThrowIfFailed(pDevice_->CreateCommittedResource(&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+                                                      D3D12_HEAP_FLAG_NONE,
+                                                      &texDesc,
+                                                      D3D12_RESOURCE_STATE_COMMON,
+                                                      nullptr,
+                                                      IID_PPV_ARGS(&blurMap1_)));
+
   }
 
   const int MaxBlurRadius = 5;
@@ -241,6 +376,7 @@ private:
   void BuildMaterials();
   void BuildRenderObjects();
   void BuildRootSignature();
+  void BuildPostProcessRootSignature();
   void BuildTerrainGeometry();
   void BuildWaterGeometry();
   void BuildInputLayout();
@@ -258,6 +394,7 @@ private:
   std::vector<D3D12_INPUT_ELEMENT_DESC>                          inputLayout_;
   std::unordered_map<std::string, ComPtr<ID3DBlob>>              shaders_;
   ComPtr<ID3D12RootSignature>                                    rootSign_ = nullptr;
+  ComPtr<ID3D12RootSignature>                                    postProcessRootSign_ = nullptr;
   std::unordered_map<std::string, ComPtr<ID3D12PipelineState>>   pipelines_;
   ComPtr<ID3D12DescriptorHeap>                                   descriptorHeap_;
   std::unique_ptr<UploadBuffer<PassConstants>>                   passCb_ = nullptr;     // Stores the MVP matrices etc.
@@ -321,6 +458,7 @@ bool BlurDemo::Initialize()
     BuildDescriptorHeaps();
     BuildBufferViews();
     BuildRootSignature();
+    BuildPostProcessRootSignature();
     BuildPipelines();
 
     // Submit the initialization commands.
@@ -484,6 +622,14 @@ void BlurDemo::Draw(const BaseTimer& timer)
   m_commandList->SetGraphicsRootConstantBufferView(0, passCb_->Resource()->GetGPUVirtualAddress());
 
   DrawRenderObjects();
+
+  // Execute the blur on the back buffer which has our scene rendered.
+  blurFilter_->Execute(m_commandList.Get(),
+                       postProcessRootSign_.Get(),
+                       pipelines_["horzBlur"].Get(),
+                       pipelines_["vertBlur"].Get(),
+                       CurrentBackBuffer(),
+                       4);
 
   // Transition the render target back to be presentable.
   m_commandList->ResourceBarrier(1,
@@ -724,6 +870,9 @@ void BlurDemo::BuildShaders()
 
   shaders_["std_vs"] = BaseUtil::CompileShader(L"shaders\\blending.hlsl", nullptr, "VS", "vs_5_1");
   shaders_["std_ps"] = BaseUtil::CompileShader(L"shaders\\blending.hlsl", defines, "PS", "ps_5_1");
+
+  shaders_["horzBlurCS"] = BaseUtil::CompileShader(L"shaders\\blur.hlsl", defines, "HorzBlurCS", "cs_5_0");
+  shaders_["vertBlurCS"] = BaseUtil::CompileShader(L"shaders\\blur.hlsl", defines, "VertBlurCS", "cs_5_0");
 }
 
 // Implementations of helper classes and functions.
@@ -830,14 +979,37 @@ void BlurDemo::BuildPipelines()
   transparent_gfx_pipe.BlendState.RenderTarget[0] = blend_desc;
   ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&transparent_gfx_pipe,
                                                          IID_PPV_ARGS(&pipelines_["transparent_gfx_pipe"])));
+
+  // Blur compute pipelines.
+  // Horizontal blur.
+  D3D12_COMPUTE_PIPELINE_STATE_DESC horzBlurPSO = {};
+  horzBlurPSO.pRootSignature = postProcessRootSign_.Get();
+  horzBlurPSO.CS =
+  {
+      reinterpret_cast<BYTE*>(shaders_["horzBlurCS"]->GetBufferPointer()), shaders_["horzBlurCS"]->GetBufferSize()
+  };
+  horzBlurPSO.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+  ThrowIfFailed(m_d3dDevice->CreateComputePipelineState(&horzBlurPSO, IID_PPV_ARGS(&pipelines_["horzBlur"])));
+
+  // Vertical blur.
+  D3D12_COMPUTE_PIPELINE_STATE_DESC vertBlurPSO = {};
+  vertBlurPSO.pRootSignature = postProcessRootSign_.Get();
+  vertBlurPSO.CS =
+  {
+      reinterpret_cast<BYTE*>(shaders_["vertBlurCS"]->GetBufferPointer()), shaders_["vertBlurCS"]->GetBufferSize()
+  };
+  vertBlurPSO.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+  ThrowIfFailed(m_d3dDevice->CreateComputePipelineState(&vertBlurPSO, IID_PPV_ARGS(&pipelines_["vertBlur"])));
 }
 
 // Creates descriptor heaps for the resources used by this demo's pipelines.
 void BlurDemo::BuildDescriptorHeaps()
 {
+  const unsigned NumDescriptors = 2 +  // 2 SRVs for textures so far in this demo.
+                                  4;   // Blur descriptors.
   // Create heap for SRVs for textures used in this demo.
   D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc;
-  srv_heap_desc.NumDescriptors = 2; // 2 SRVs for textures so far in this demo.
+  srv_heap_desc.NumDescriptors = NumDescriptors;
   srv_heap_desc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
   srv_heap_desc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
   srv_heap_desc.NodeMask       = 0;
@@ -884,6 +1056,12 @@ void BlurDemo::BuildBufferViews()
   auto water_tex = textures_["water_tex"]->resource_;
   srv_desc.Format = water_tex->GetDesc().Format;
   m_d3dDevice->CreateShaderResourceView(water_tex.Get(), &srv_desc, heap_handle);
+
+  // Fill out the heap with the descriptors to the BlurFilter resources.
+  blurFilter_->BuildDescriptors(
+      CD3DX12_CPU_DESCRIPTOR_HANDLE(descriptorHeap_->GetCPUDescriptorHandleForHeapStart(), 2, m_cbvSrvUavDescriptorSize),
+      CD3DX12_GPU_DESCRIPTOR_HANDLE(descriptorHeap_->GetGPUDescriptorHandleForHeapStart(), 2, m_cbvSrvUavDescriptorSize),
+      m_cbvSrvUavDescriptorSize);
 }
 
 // Builds the root signature for this demo.
@@ -942,6 +1120,41 @@ void BlurDemo::BuildRootSignature()
                                                  serialized_root_sign->GetBufferPointer(),
                                                  serialized_root_sign->GetBufferSize(),
                                                  IID_PPV_ARGS(rootSign_.GetAddressOf())));
+}
+
+// Creates the root signature for the post processing compute pipeline.
+void BlurDemo::BuildPostProcessRootSignature()
+{
+    CD3DX12_DESCRIPTOR_RANGE srvTable;
+    srvTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+
+    CD3DX12_DESCRIPTOR_RANGE uavTable;
+    uavTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
+
+    CD3DX12_ROOT_PARAMETER slotRootParameter[3];
+
+    slotRootParameter[0].InitAsConstants(12, 0);
+    slotRootParameter[1].InitAsDescriptorTable(1, &srvTable);
+    slotRootParameter[2].InitAsDescriptorTable(1, &uavTable);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter,
+                                            0, nullptr,
+                                            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    ComPtr<ID3DBlob> serializedRootSig = nullptr;
+    ComPtr<ID3DBlob> errorBlob = nullptr;
+    HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(m_d3dDevice->CreateRootSignature(0,
+                                                   serializedRootSig->GetBufferPointer(),
+                                                   serializedRootSig->GetBufferSize(),
+                                                   IID_PPV_ARGS(postProcessRootSign_.GetAddressOf())));
 }
 
 // When the mouse button is pressed down.
@@ -1051,8 +1264,11 @@ int WINAPI WinMain(HINSTANCE hInstance,
 BLUR COMPUTE SHADER DEMO
 
 TODO:
-- render scene to texture
-- blur rendered texture
 - present blurred texture
+- write blur shader
+- execute blur
 
+DONE:
+- render scene to texture
+- build post process root signature
 */
