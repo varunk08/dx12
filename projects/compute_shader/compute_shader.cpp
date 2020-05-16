@@ -631,11 +631,13 @@ void BlurDemo::Draw(const BaseTimer& timer)
                        CurrentBackBuffer(),
                        4);
 
-  // Transition the render target back to be presentable.
-  m_commandList->ResourceBarrier(1,
-                                 &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-                                                                       D3D12_RESOURCE_STATE_RENDER_TARGET,
-                                                                       D3D12_RESOURCE_STATE_PRESENT));
+  // Prepare to copy blurred output to the back buffer.
+  m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST));
+
+  m_commandList->CopyResource(CurrentBackBuffer(), blurFilter_->Output());
+
+  // Transition to PRESENT state.
+  m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT));
 
   ThrowIfFailed(m_commandList->Close());
   ID3D12CommandList* command_lists[] = { m_commandList.Get() };
