@@ -263,7 +263,7 @@ void ShapesDemo::Draw(const BaseTimer& gt)
     m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
-    
+
     auto passCb = m_currFrameResource->m_passCb->Resource();
     m_commandList->SetGraphicsRootConstantBufferView(2, passCb->GetGPUVirtualAddress());
 
@@ -352,7 +352,7 @@ void ShapesDemo::BuildRootSignature()
 // ====================================================================================================================
 void ShapesDemo::BuildShadersAndInputLayout()
 {
-    
+
     m_shaders["standardVS"] = BaseUtil::CompileShader(L"shaders\\color.hlsl", nullptr, "VS", "vs_5_1");
     m_shaders["opaquePS"]   = BaseUtil::CompileShader(L"shaders\\color.hlsl", nullptr, "PS", "ps_5_1");
 

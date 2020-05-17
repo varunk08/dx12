@@ -29,6 +29,7 @@ set (PROJECTS
      stenciling
      geometry_shader
      compute_shader
-     compute_add)
+     compute_add
+     first_person_cam)
 
 buildAllProjects()
