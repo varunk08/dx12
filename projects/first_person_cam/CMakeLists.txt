@@ -4,5 +4,6 @@ set (COMMON_SRC ${COMMON}/BaseApp.cpp
                 ${COMMON}/BaseTimer.cpp
                 ${COMMON}/DDSTextureLoader.cpp
                 ${COMMON}/MathHelper.cpp
-                ${COMMON}/GeometryGenerator.cpp)
+                ${COMMON}/GeometryGenerator.cpp
+                ${COMMON}/BaseTimer.cpp)
 add_executable(first_person_demo ${SOURCE} ${COMMON_SRC})

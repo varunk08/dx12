@@ -19,6 +19,7 @@ Create a first person camera demo with a basic scene
 #include <DirectXColors.h>
 #include "BaseApp.h"
 #include "BaseUtil.h"
+#include "BaseTimer.h"
 #include "UploadBuffer.h"
 #include "../common/GeometryGenerator.h"
 #include "../common/d3dx12.h"
@@ -41,6 +42,119 @@ struct SceneConstants {
 };
 
 // ======================================================================
+class Camera
+{
+public:
+    Camera() {}
+    ~Camera() {
+    }
+    void SetPosition(float x, float y, float z) {
+        mPosition  = XMFLOAT3(x, y, z);
+        mViewDirty = true;
+    }
+    void SetLens(float fovY, float aspect, float zn, float zf) {
+        mFovY             = fovY;
+        mAspect           = aspect;
+        mNearZ            = zn;
+        mFarZ             = zf;
+        mNearWindowHeight = 2.0f * mNearZ * tanf(0.5f*mFovY);
+        mFarWindowHeight  = 2.0f * mFarZ * tanf(0.5f*mFovY);
+        XMMATRIX P        = XMMatrixPerspectiveFovLH(mFovY, mAspect, mNearZ, mFarZ);
+        XMStoreFloat4x4(&mProj, P);
+    }
+    XMMATRIX GetView() const {
+        assert(!mViewDirty);
+        return XMLoadFloat4x4(&mView);
+    }
+    XMMATRIX GetProj() const { return XMLoadFloat4x4(&mProj); }
+    void Walk(float d) {
+        XMVECTOR s = XMVectorReplicate(d);
+        XMVECTOR l = XMLoadFloat3(&mLook);
+        XMVECTOR p = XMLoadFloat3(&mPosition);
+        XMStoreFloat3(&mPosition, XMVectorMultiplyAdd(s, l, p));
+        mViewDirty = true;
+    }
+    void Strafe(float d) {
+        // mPosition += d*mRight
+        XMVECTOR s = XMVectorReplicate(d);
+        XMVECTOR r = XMLoadFloat3(&mRight);
+        XMVECTOR p = XMLoadFloat3(&mPosition);
+        XMStoreFloat3(&mPosition, XMVectorMultiplyAdd(s, r, p));
+        mViewDirty = true;
+    }
+    void UpdateViewMatrix() {
+        if (mViewDirty)
+        {
+            XMVECTOR R = XMLoadFloat3(&mRight);
+            XMVECTOR U = XMLoadFloat3(&mUp);
+            XMVECTOR L = XMLoadFloat3(&mLook);
+            XMVECTOR P = XMLoadFloat3(&mPosition);
+            // Keep camera's axes orthogonal to each other and of unit length.
+            L = XMVector3Normalize(L);
+            U = XMVector3Normalize(XMVector3Cross(L, R));
+            // U, L already ortho-normal, so no need to normalize cross product.
+            R = XMVector3Cross(U, L);
+            // Fill in the view matrix entries.
+            float x = -XMVectorGetX(XMVector3Dot(P, R));
+            float y = -XMVectorGetX(XMVector3Dot(P, U));
+            float z = -XMVectorGetX(XMVector3Dot(P, L));
+            XMStoreFloat3(&mRight, R);
+            XMStoreFloat3(&mUp, U);
+            XMStoreFloat3(&mLook, L);
+            mView(0, 0) = mRight.x;
+            mView(1, 0) = mRight.y;
+            mView(2, 0) = mRight.z;
+            mView(3, 0) = x;
+            mView(0, 1) = mUp.x;
+            mView(1, 1) = mUp.y;
+            mView(2, 1) = mUp.z;
+            mView(3, 1) = y;
+            mView(0, 2) = mLook.x;
+            mView(1, 2) = mLook.y;
+            mView(2, 2) = mLook.z;
+            mView(3, 2) = z;
+            mView(0, 3) = 0.0f;
+            mView(1, 3) = 0.0f;
+            mView(2, 3) = 0.0f;
+            mView(3, 3) = 1.0f;
+            mViewDirty = false;
+        }
+    }
+    void Camera::Pitch(float angle) {
+        // Rotate up and look vector about the right vector.
+        XMMATRIX R = XMMatrixRotationAxis(XMLoadFloat3(&mRight), angle);
+        XMStoreFloat3(&mUp, XMVector3TransformNormal(XMLoadFloat3(&mUp), R));
+        XMStoreFloat3(&mLook, XMVector3TransformNormal(XMLoadFloat3(&mLook), R));
+        mViewDirty = true;
+    }
+    void Camera::RotateY(float angle) {
+        // Rotate the basis vectors about the world y-axis.
+        XMMATRIX R = XMMatrixRotationY(angle);
+        XMStoreFloat3(&mRight, XMVector3TransformNormal(XMLoadFloat3(&mRight), R));
+        XMStoreFloat3(&mUp, XMVector3TransformNormal(XMLoadFloat3(&mUp), R));
+        XMStoreFloat3(&mLook, XMVector3TransformNormal(XMLoadFloat3(&mLook), R));
+        mViewDirty = true;
+    }
+private:
+    // Camera coordinate system with coordinates relative to world space.
+    DirectX::XMFLOAT3 mPosition = { 0.0f, 0.0f, 0.0f };
+    DirectX::XMFLOAT3 mRight    = { 1.0f, 0.0f, 0.0f };
+    DirectX::XMFLOAT3 mUp       = { 0.0f, 1.0f, 0.0f };
+    DirectX::XMFLOAT3 mLook     = { 0.0f, 0.0f, 1.0f };
+    // Cache frustum properties.
+    float mNearZ            = 0.0f;
+    float mFarZ             = 0.0f;
+    float mAspect           = 0.0f;
+    float mFovY             = 0.0f;
+    float mNearWindowHeight = 0.0f;
+    float mFarWindowHeight  = 0.0f;
+    bool mViewDirty         = true;
+    // Cache View/Proj matrices.
+    DirectX::XMFLOAT4X4 mView = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 mProj = MathHelper::Identity4x4();
+};
+
+// ======================================================================
 class FpsCamDemo : public BaseApp
 {
 public:
@@ -57,6 +171,7 @@ public:
         if (ret) {
             ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
             m_cbvSrvUavDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            mCamera.SetPosition(0.0f, 2.0f, -15.0f);
             BuildGeometry();
             BuildDescriptorsAndViews();
             BuildShaders();
@@ -75,6 +190,22 @@ public:
 
 protected:
     void LoadTextures();
+    void OnKeyboardInput(const BaseTimer& gt) {
+        const float dt = gt.DeltaTimeInSecs();
+        if (GetAsyncKeyState('W') & 0x8000) {
+            mCamera.Walk(10.0f*dt);
+        }
+        if (GetAsyncKeyState('S') & 0x8000) {
+            mCamera.Walk(-10.0f*dt);
+        }
+        if (GetAsyncKeyState('A') & 0x8000) {
+            mCamera.Strafe(-10.0f*dt);
+        }
+        if (GetAsyncKeyState('D') & 0x8000) {
+            mCamera.Strafe(10.0f*dt);
+        }
+        mCamera.UpdateViewMatrix();
+    }
     void OnMouseDown(WPARAM btnState, int x, int y)override {
         mLastMousePos.x = x;
         mLastMousePos.y = y;
@@ -87,15 +218,8 @@ protected:
         if ((btnState & MK_LBUTTON) != 0) {
             float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
             float dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
-            mTheta += dx;
-            mPhi += dy;
-            mPhi = MathHelper::Clamp(mPhi, 0.1f, MathHelper::Pi - 0.1f);
-        }
-        else if ((btnState & MK_RBUTTON) != 0) {
-            float dx = 0.2f * static_cast<float>(x - mLastMousePos.x);
-            float dy = 0.2f * static_cast<float>(y - mLastMousePos.y);
-            mRadius += (dx - dy);
-            mRadius = MathHelper::Clamp(mRadius, 3.0f, 600.0f);
+            mCamera.Pitch(dy);
+            mCamera.RotateY(dx);
         }
         mLastMousePos.x = x;
         mLastMousePos.y = y;
@@ -132,16 +256,13 @@ protected:
         FlushCommandQueue();
     }
     void Update(const BaseTimer& gt) {
+        OnKeyboardInput(gt);
         float x = mRadius * sinf(mPhi) * cosf(mTheta);
         float z = mRadius * sinf(mPhi) * sinf(mTheta);
         float y = mRadius * cosf(mPhi);
-        XMVECTOR pos = XMVectorSet(x, y, z, 1.0f);
-        XMVECTOR target = XMVectorZero();
-        XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-        XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
-        XMStoreFloat4x4(&mView, view);
+        XMMATRIX view = mCamera.GetView();
+        XMMATRIX proj = mCamera.GetProj();
         XMMATRIX world = XMLoadFloat4x4(&mWorld);
-        XMMATRIX proj = XMLoadFloat4x4(&mProj);
         XMMATRIX worldViewProj = world * view * proj;
         SceneConstants mvpMatrix = { };
         XMStoreFloat4x4(&mvpMatrix.mvpMatrix, XMMatrixTranspose(worldViewProj));
@@ -155,8 +276,9 @@ protected:
     }
     void OnResize() {
         BaseApp::OnResize();
-        XMMATRIX proj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
-        XMStoreFloat4x4(&mProj, proj);
+        mCamera.SetLens(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.f);
+        /*XMMATRIX proj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+        XMStoreFloat4x4(&mProj, proj);*/
     }
     void BuildPipelines() {
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = { };
@@ -227,7 +349,7 @@ protected:
     }
     void BuildGeometry() {
         GeometryGenerator generator;
-        MeshData grid                  = generator.CreateGrid(2.0f, 2.0f, 40, 40);
+        MeshData grid                  = generator.CreateGrid(20.0f, 20.0f, 40, 40);
         UINT gridVertexOffset          = 0;
         UINT gridIndexOffset           = 0;
         SubmeshGeometry gridSubmesh    = {};
@@ -260,6 +382,7 @@ protected:
     }
 
 private:
+    Camera                                          mCamera;
     unordered_map<string, unique_ptr<MeshGeometry>> mGeometries;
     unordered_map<string, ComPtr<ID3DBlob>>         mShaders;
     vector<D3D12_INPUT_ELEMENT_DESC>                mInputLayout;

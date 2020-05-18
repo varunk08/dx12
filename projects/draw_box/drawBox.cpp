@@ -197,8 +197,8 @@ void BasicBox::OnResize()
 void BasicBox::Update(const BaseTimer & timer)
 {
     float x = m_radius * sinf(m_phi) * cosf(m_theta);
-    float y = m_radius * sinf(m_phi) * sinf(m_theta);
-    float z = m_radius * cosf(m_phi);
+    float z = m_radius * sinf(m_phi) * sinf(m_theta);
+    float y = m_radius * cosf(m_phi);
 
     XMVECTOR pos    = XMVectorSet(x, y, z, 1.0f);
     XMVECTOR target = XMVectorZero();
