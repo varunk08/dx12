@@ -31,6 +31,7 @@ set (PROJECTS
      compute_shader
      compute_add
      first_person_cam
-     dynamic_indexing)
+     dynamic_indexing
+     instancing_culling)
 
 buildAllProjects()
