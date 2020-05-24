@@ -30,6 +30,7 @@ set (PROJECTS
      geometry_shader
      compute_shader
      compute_add
-     first_person_cam)
+     first_person_cam
+     dynamic_indexing)
 
 buildAllProjects()

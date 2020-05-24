@@ -6,11 +6,12 @@ Create a first person camera demo with a basic scene
     - buid pipelines
     - build descriptor heaps and shader views
     - write draw commands
-    -
 - implement first person camera
     - load textures
     - write shader to apply texture to grid
-
+- Implement dynamic indexing:
+    - draw some boxes, with uv coordinates for textures
+    - render each box with a unique texure using dynamic indexing
 */
 #include <unordered_map>
 #include <string>
@@ -27,6 +28,7 @@ Create a first person camera demo with a basic scene
 using namespace std;
 using namespace DirectX;
 using Microsoft::WRL::ComPtr;
+using uint = UINT;
 
 #pragma comment (lib, "d3dcompiler.lib")
 #pragma comment (lib, "D3D12.lib")
@@ -39,6 +41,14 @@ struct ShaderVertex {
 
 struct SceneConstants {
     XMFLOAT4X4 mvpMatrix = MathHelper::Identity4x4();
+};
+
+struct ShaderMaterialData {
+    XMFLOAT4 color;
+};
+
+struct ShaderPerObjectData {
+    uint materialIndex;
 };
 
 // ======================================================================
@@ -155,13 +165,13 @@ private:
 };
 
 // ======================================================================
-class FpsCamDemo : public BaseApp
+class DynamicIndexingDemo : public BaseApp
 {
 public:
-    FpsCamDemo(HINSTANCE hInst)
+    DynamicIndexingDemo(HINSTANCE hInst)
     : BaseApp(hInst){
     }
-    ~FpsCamDemo() {
+    ~DynamicIndexingDemo() {
         if (m_d3dDevice != nullptr) {
             FlushCommandQueue();
         }
@@ -173,6 +183,7 @@ public:
             m_cbvSrvUavDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
             mCamera.SetPosition(0.0f, 2.0f, -15.0f);
             BuildGeometry();
+            BuildMaterials();
             BuildDescriptorsAndViews();
             BuildShaders();
             BuildRootSignature();
@@ -233,14 +244,21 @@ protected:
         m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSlateGray, 0, nullptr);
         m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
         m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-        ID3D12DescriptorHeap* descriptorHeaps[] = { mpCbvHeap.Get() };
-        m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-        m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
-        m_commandList->IASetVertexBuffers(0, 1, &mGeometries["grid"]->VertexBufferView());
-        m_commandList->IASetIndexBuffer(&mGeometries["grid"]->IndexBufferView());
+        m_commandList->IASetVertexBuffers(0, 1, &mGeometries["scene"]->VertexBufferView());
+        m_commandList->IASetIndexBuffer(&mGeometries["scene"]->IndexBufferView());
         m_commandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        m_commandList->SetGraphicsRootDescriptorTable(0, mpCbvHeap->GetGPUDescriptorHandleForHeapStart());
-        m_commandList->DrawIndexedInstanced(mGeometries["grid"]->drawArgs["grid"].indexCount, 1, 0, 0, 0);
+
+        m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
+        m_commandList->SetGraphicsRootConstantBufferView(0, mSceneConstants->Resource()->GetGPUVirtualAddress());
+        m_commandList->SetGraphicsRootConstantBufferView(1, mObjectBuffer->Resource()->GetGPUVirtualAddress());
+        m_commandList->SetGraphicsRootShaderResourceView(2, mMatBuffer->Resource()->GetGPUVirtualAddress());
+
+        m_commandList->DrawIndexedInstanced(mGeometries["scene"]->drawArgs["grid"].indexCount, 1, 0, 0, 0);
+
+        m_commandList->SetGraphicsRootConstantBufferView(1, mObjectBuffer->Resource()->GetGPUVirtualAddress() + sizeof(ShaderPerObjectData));
+        const auto& boxDrawArgs = mGeometries["scene"]->drawArgs["box"];
+        m_commandList->DrawIndexedInstanced(boxDrawArgs.indexCount, 1, boxDrawArgs.startIndexLocation, boxDrawArgs.baseVertexLocation, 0);
+
         m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
         ThrowIfFailed(m_commandList->Close());
         ID3D12CommandList* cmdsLists[] = { m_commandList.Get() };
@@ -275,8 +293,6 @@ protected:
     void OnResize() {
         BaseApp::OnResize();
         mCamera.SetLens(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.f);
-        /*XMMATRIX proj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
-        XMStoreFloat4x4(&mProj, proj);*/
     }
     void BuildPipelines() {
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = { };
@@ -309,11 +325,11 @@ protected:
         ThrowIfFailed(hr);
     }
     void BuildRootSignature() {
-        CD3DX12_ROOT_PARAMETER slotRootParams[1];
-        CD3DX12_DESCRIPTOR_RANGE cbvTable = {};
-        cbvTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
-        slotRootParams[0].InitAsDescriptorTable(1, &cbvTable);
-        CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(1, slotRootParams, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+        CD3DX12_ROOT_PARAMETER slotRootParams[3];
+        slotRootParams[0].InitAsConstantBufferView(0); // MVP matrix
+        slotRootParams[1].InitAsConstantBufferView(1);  // per-object data
+        slotRootParams[2].InitAsShaderResourceView(0, 0); // all material data.
+        CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(3, slotRootParams, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
         ComPtr<ID3DBlob> serializedRootSig = nullptr;
         ComPtr<ID3DBlob> errorBlob = nullptr;
         HRESULT hr = D3D12SerializeRootSignature(&rootSignDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
@@ -324,22 +340,26 @@ protected:
         ThrowIfFailed(m_d3dDevice->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(), IID_PPV_ARGS(&mRootSignature)));
     }
     void BuildDescriptorsAndViews() {
-        // We need one const buffer view just for the MVP matrix.
-        D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = {};
-        cbvHeapDesc.NumDescriptors = 1;
-        cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&mpCbvHeap)));
-        mSceneConstants = make_unique<UploadBuffer<SceneConstants>>(m_d3dDevice.Get(), 1, true);
-        UINT sceneConstBytes = BaseUtil::CalcConstantBufferByteSize(sizeof(SceneConstants));
-        D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = { };
-        cbvDesc.BufferLocation = mSceneConstants->Resource()->GetGPUVirtualAddress();
-        cbvDesc.SizeInBytes = BaseUtil::CalcConstantBufferByteSize(sizeof(SceneConstants));
-        m_d3dDevice->CreateConstantBufferView(&cbvDesc, mpCbvHeap->GetCPUDescriptorHandleForHeapStart());
+        assert(mMaterials.size() > 0);
+        assert(mGeometries.size() > 0);
+        assert(mGeometries["scene"]->drawArgs.size() > 0);
+        mSceneConstants           = make_unique<UploadBuffer<SceneConstants>>(m_d3dDevice.Get(), 1, true);
+        mMatBuffer                = make_unique<UploadBuffer<ShaderMaterialData>>(m_d3dDevice.Get(), mMaterials.size(), false);
+        int mIndex                = 0;
+        for (auto& mat : mMaterials) {
+            mMatBuffer->CopyData(mIndex++, *mat.second.get());
+        }
+        const uint NumObjects = static_cast<uint>(mGeometries["scene"]->drawArgs.size());
+        mObjectBuffer = make_unique<UploadBuffer<ShaderPerObjectData>>(m_d3dDevice.Get(), NumObjects, false);
+        for (uint i = 0; i < NumObjects; i++) {
+            ShaderPerObjectData objData = {};
+            objData.materialIndex = i;
+            mObjectBuffer->CopyData(i, objData);
+        }
     }
     void BuildShaders() {
-        mShaders["simpleVS"] = BaseUtil::CompileShader(L"shaders\\simpleRender.hlsl", nullptr, "SimpleVS", "vs_5_1");
-        mShaders["simplePS"] = BaseUtil::CompileShader(L"shaders\\simpleRender.hlsl", nullptr, "SimplePS", "ps_5_1");
+        mShaders["simpleVS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\dynamic_indexing\\shaders\\simpleRender.hlsl", nullptr, "SimpleVS", "vs_5_1");
+        mShaders["simplePS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\dynamic_indexing\\shaders\\simpleRender.hlsl", nullptr, "SimplePS", "ps_5_1");
         mInputLayout = {
             {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
             {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
@@ -348,23 +368,38 @@ protected:
     void BuildGeometry() {
         GeometryGenerator generator;
         MeshData grid                  = generator.CreateGrid(20.0f, 20.0f, 40, 40);
-        UINT gridVertexOffset          = 0;
-        UINT gridIndexOffset           = 0;
+        MeshData box                   = generator.CreateBox(2.0f, 2.0f, 2.0f, 1); // box comes after grid.
+        uint gridVertexOffset          = static_cast<uint>(0);
+        uint gridIndexOffset           = static_cast<uint>(0);
+        uint boxVertexOffset           = static_cast<uint>(gridVertexOffset + grid.m_vertices.size());
+        uint boxIndexOffset            = static_cast<uint>(gridIndexOffset + grid.m_indices32.size());
         SubmeshGeometry gridSubmesh    = {};
-        gridSubmesh.indexCount         = static_cast<UINT>(grid.m_indices32.size());
+        gridSubmesh.indexCount         = static_cast<uint>(grid.m_indices32.size());
         gridSubmesh.startIndexLocation = gridIndexOffset;
         gridSubmesh.baseVertexLocation = gridVertexOffset;
-        vector<ShaderVertex> vertices(grid.m_vertices.size());
-        vector<uint32_t> indices;
-        for (size_t i = 0; i < grid.m_vertices.size(); ++i) {
-            vertices[i].pos = grid.m_vertices[i].m_position;
-            vertices[i].color = XMFLOAT4(DirectX::Colors::DarkGreen);
+        SubmeshGeometry boxSubmesh     = {};
+        boxSubmesh.indexCount          = static_cast<uint>(box.m_indices32.size());
+        boxSubmesh.startIndexLocation  = boxIndexOffset;
+        boxSubmesh.baseVertexLocation  = boxVertexOffset;
+        const uint NumVertices         = static_cast<uint>(grid.m_vertices.size() + box.m_vertices.size());
+        const uint NumIndices          = static_cast<uint>(grid.m_indices32.size() + box.m_indices32.size());
+        vector<ShaderVertex> vertices(NumVertices);
+        uint k = 0;
+        for (size_t i = 0; i < grid.m_vertices.size(); ++i, k++) {
+            vertices[k].pos = grid.m_vertices[i].m_position;
+            vertices[k].color = XMFLOAT4(DirectX::Colors::DarkGreen);
         }
+        for (size_t i = 0; i < box.m_vertices.size(); ++i, k++) {
+            vertices[k].pos = box.m_vertices[i].m_position;
+            vertices[k].color = XMFLOAT4(DirectX::Colors::Maroon);
+        }
+        vector<uint32_t> indices;
         indices.insert(indices.end(), cbegin(grid.m_indices32), cend(grid.m_indices32));
-        const UINT vbNumBytes             = static_cast<UINT>(vertices.size()) * sizeof(ShaderVertex);
-        const UINT ibNumBytes             = static_cast<UINT>(indices.size()) * sizeof(uint32_t);
+        indices.insert(indices.end(), cbegin(box.m_indices32), cend(box.m_indices32));
+        const UINT vbNumBytes             = NumVertices * sizeof(ShaderVertex);
+        const UINT ibNumBytes             = NumIndices * sizeof(uint32_t);
         unique_ptr<MeshGeometry> geometry = make_unique<MeshGeometry>();
-        geometry->name                    = "grid";
+        geometry->name                    = "scene";
         ThrowIfFailed(D3DCreateBlob(vbNumBytes, &geometry->vertexBufferCPU));
         CopyMemory(geometry->vertexBufferCPU->GetBufferPointer(), vertices.data(), vbNumBytes);
         ThrowIfFailed(D3DCreateBlob(ibNumBytes, &geometry->indexBufferCPU));
@@ -376,18 +411,27 @@ protected:
         geometry->indexFormat          = DXGI_FORMAT_R32_UINT;
         geometry->indexBufferByteSize  = ibNumBytes;
         geometry->drawArgs["grid"]     = gridSubmesh;
+        geometry->drawArgs["box"]      = boxSubmesh;
         mGeometries[geometry->name]    = move(geometry);
+    }
+    void BuildMaterials() {
+        mMaterials["darkGreen"]              = make_unique<ShaderMaterialData>();
+        mMaterials["maroon"]                 = make_unique<ShaderMaterialData>();
+        mMaterials["darkGreen"].get()->color = XMFLOAT4(DirectX::Colors::DarkGreen);
+        mMaterials["maroon"].get()->color    = XMFLOAT4(DirectX::Colors::Maroon);
     }
 
 private:
-    Camera                                          mCamera;
-    unordered_map<string, unique_ptr<MeshGeometry>> mGeometries;
-    unordered_map<string, ComPtr<ID3DBlob>>         mShaders;
-    vector<D3D12_INPUT_ELEMENT_DESC>                mInputLayout;
-    ComPtr<ID3D12DescriptorHeap>                    mpCbvHeap = nullptr;
-    unique_ptr<UploadBuffer<SceneConstants>>        mSceneConstants = nullptr;
-    ComPtr<ID3D12RootSignature>                     mRootSignature = nullptr;
-    ComPtr<ID3D12PipelineState>                     mSimplePipeline = nullptr;
+    Camera                                                mCamera;
+    unordered_map<string, unique_ptr<MeshGeometry>>       mGeometries;
+    unordered_map<string, ComPtr<ID3DBlob>>               mShaders;
+    unordered_map<string, unique_ptr<ShaderMaterialData>> mMaterials;
+    vector<D3D12_INPUT_ELEMENT_DESC>                      mInputLayout;
+    unique_ptr<UploadBuffer<SceneConstants>>              mSceneConstants = nullptr;
+    unique_ptr<UploadBuffer<ShaderMaterialData>>          mMatBuffer = nullptr;
+    unique_ptr<UploadBuffer<ShaderPerObjectData>>         mObjectBuffer = nullptr;
+    ComPtr<ID3D12RootSignature>                           mRootSignature = nullptr;
+    ComPtr<ID3D12PipelineState>                           mSimplePipeline = nullptr;
     float mRadius = 5.0f;
     float mPhi = XM_PIDIV4;
     float mTheta = 2.0f * XM_PI;
@@ -403,7 +447,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
     _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 #endif
     auto ret = 0;
-    FpsCamDemo demoApp(hInstance);
+    DynamicIndexingDemo demoApp(hInstance);
     if (demoApp.Initialize()) {
         ret = demoApp.Run();
     }
