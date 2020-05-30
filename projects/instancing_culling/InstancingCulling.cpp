@@ -29,6 +29,7 @@ using uint = UINT;
 struct ShaderVertex {
     DirectX::XMFLOAT3 pos;
     DirectX::XMFLOAT4 color;
+    DirectX::XMFLOAT2 tex;
 };
 
 struct SceneConstants {
@@ -262,12 +263,12 @@ protected:
         m_commandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
         ID3D12DescriptorHeap* descriptorHeaps[] = { mTextureSrvHeap.Get() };
-        //m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+        m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
         m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
         m_commandList->SetGraphicsRootConstantBufferView(0, mSceneConstants->Resource()->GetGPUVirtualAddress());
         m_commandList->SetGraphicsRootConstantBufferView(1, mObjectBuffer->Resource()->GetGPUVirtualAddress());
         m_commandList->SetGraphicsRootShaderResourceView(2, mMatBuffer->Resource()->GetGPUVirtualAddress());
-        //m_commandList->SetGraphicsRootDescriptorTable(3, mTextureSrvHeap->GetGPUDescriptorHandleForHeapStart());
+        m_commandList->SetGraphicsRootDescriptorTable(3, mTextureSrvHeap->GetGPUDescriptorHandleForHeapStart());
 
         m_commandList->DrawIndexedInstanced(mGeometries["scene"]->drawArgs["grid"].indexCount, 1, 0, 0, 0);
         uint objCBByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(ShaderPerObjectData));
@@ -325,7 +326,7 @@ protected:
             mShaders["simplePS"]->GetBufferSize()
         };
         psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-        psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+        //psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
         psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
         psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
         psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
@@ -342,11 +343,11 @@ protected:
     void BuildRootSignature() {
         assert(mTextures.size() > 0);
         CD3DX12_DESCRIPTOR_RANGE texTable;
-        texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, static_cast<uint>(mTextures.size()), 0, 1); // t0, space1
+        texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, static_cast<uint>(mTextures.size()), 0, 0); // t0, space0
         CD3DX12_ROOT_PARAMETER slotRootParams[4];
         slotRootParams[0].InitAsConstantBufferView(0); // MVP matrix
         slotRootParams[1].InitAsConstantBufferView(1);  // per-object data
-        slotRootParams[2].InitAsShaderResourceView(0); // all material data (t0, space0)
+        slotRootParams[2].InitAsShaderResourceView(0,1); // all material data (t0, space1)
         slotRootParams[3].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);  // all the textures
         auto samplers = GetStaticSamplers();
         CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc((sizeof(slotRootParams) / sizeof(CD3DX12_ROOT_PARAMETER)), slotRootParams, (uint)samplers.size(), samplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
@@ -410,7 +411,8 @@ protected:
         mShaders["simplePS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\instancing_culling\\shaders\\simpleRender.hlsl", nullptr, "SimplePS", "ps_5_1");
         mInputLayout = {
             {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         };
     }
     void BuildGeometry() {
@@ -436,10 +438,12 @@ protected:
         for (size_t i = 0; i < grid.m_vertices.size(); ++i, k++) {
             vertices[k].pos = grid.m_vertices[i].m_position;
             vertices[k].color = XMFLOAT4(DirectX::Colors::DarkGreen);
+            vertices[k].tex = grid.m_vertices[i].m_texC;
         }
         for (size_t i = 0; i < box.m_vertices.size(); ++i, k++) {
             vertices[k].pos = box.m_vertices[i].m_position;
             vertices[k].color = XMFLOAT4(DirectX::Colors::Maroon);
+            vertices[k].tex = box.m_vertices[i].m_texC;
         }
         vector<uint32_t> indices;
         indices.insert(indices.end(), cbegin(grid.m_indices32), cend(grid.m_indices32));
