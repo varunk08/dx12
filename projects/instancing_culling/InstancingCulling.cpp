@@ -33,7 +33,16 @@ struct ShaderVertex {
 };
 
 struct SceneConstants {
-    XMFLOAT4X4 mvpMatrix = MathHelper::Identity4x4();
+    XMFLOAT4X4 viewMatrix = MathHelper::Identity4x4();
+    XMFLOAT4X4 projMatrix = MathHelper::Identity4x4();
+};
+
+struct InstanceData {
+    XMFLOAT4X4 worldMatrix = MathHelper::Identity4x4();
+    uint materialIndex;
+    uint padding0;
+    uint padding1;
+    uint padding2;
 };
 
 struct ShaderMaterialData {
@@ -179,8 +188,8 @@ public:
             m_cbvSrvUavDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
             mCamera.SetPosition(0.0f, 2.0f, -15.0f);
             LoadTextures();
-            BuildGeometry();
             BuildMaterials();
+            BuildGeometry();
             BuildDescriptorsAndViews();
             BuildShaders();
             BuildRootSignature();
@@ -268,13 +277,14 @@ protected:
         m_commandList->SetGraphicsRootConstantBufferView(0, mSceneConstants->Resource()->GetGPUVirtualAddress());
         m_commandList->SetGraphicsRootConstantBufferView(1, mObjectBuffer->Resource()->GetGPUVirtualAddress());
         m_commandList->SetGraphicsRootShaderResourceView(2, mMatBuffer->Resource()->GetGPUVirtualAddress());
-        m_commandList->SetGraphicsRootDescriptorTable(3, mTextureSrvHeap->GetGPUDescriptorHandleForHeapStart());
+        m_commandList->SetGraphicsRootShaderResourceView(3, mInstDataBuffer->Resource()->GetGPUVirtualAddress());
+        m_commandList->SetGraphicsRootDescriptorTable(4, mTextureSrvHeap->GetGPUDescriptorHandleForHeapStart());
 
-        m_commandList->DrawIndexedInstanced(mGeometries["scene"]->drawArgs["grid"].indexCount, 1, 0, 0, 0);
+        //m_commandList->DrawIndexedInstanced(mGeometries["scene"]->drawArgs["grid"].indexCount, 1, 0, 0, 0);
         uint objCBByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(ShaderPerObjectData));
         m_commandList->SetGraphicsRootConstantBufferView(1, mObjectBuffer->Resource()->GetGPUVirtualAddress() + objCBByteSize);
         const auto& boxDrawArgs = mGeometries["scene"]->drawArgs["box"];
-        m_commandList->DrawIndexedInstanced(boxDrawArgs.indexCount, 1, boxDrawArgs.startIndexLocation, boxDrawArgs.baseVertexLocation, 0);
+        m_commandList->DrawIndexedInstanced(boxDrawArgs.indexCount, static_cast<UINT>(mBoxInstances.size()), boxDrawArgs.startIndexLocation, boxDrawArgs.baseVertexLocation, 0);
         m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
         ThrowIfFailed(m_commandList->Close());
         ID3D12CommandList* cmdsLists[] = { m_commandList.Get() };
@@ -289,16 +299,14 @@ protected:
     }
     void Update(const BaseTimer& gt) {
         OnKeyboardInput(gt);
-        float x = mRadius * sinf(mPhi) * cosf(mTheta);
-        float z = mRadius * sinf(mPhi) * sinf(mTheta);
-        float y = mRadius * cosf(mPhi);
         XMMATRIX view = mCamera.GetView();
         XMMATRIX proj = mCamera.GetProj();
-        XMMATRIX world = XMLoadFloat4x4(&mWorld);
-        XMMATRIX worldViewProj = world * view * proj;
-        SceneConstants mvpMatrix = { };
-        XMStoreFloat4x4(&mvpMatrix.mvpMatrix, XMMatrixTranspose(worldViewProj));
-        mSceneConstants->CopyData(0, mvpMatrix);
+        //XMMATRIX world = XMLoadFloat4x4(&mWorld);
+        //XMMATRIX worldViewProj = world * view * proj;
+        SceneConstants vpMatrix = { };
+        XMStoreFloat4x4(&vpMatrix.viewMatrix, XMMatrixTranspose(view));
+        XMStoreFloat4x4(&vpMatrix.projMatrix, XMMatrixTranspose(proj));
+        mSceneConstants->CopyData(0, vpMatrix);
         if ((m_currentFence != 0) && (m_fence->GetCompletedValue() < m_currentFence)) {
             HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
             ThrowIfFailed(m_fence->SetEventOnCompletion(m_currentFence, eventHandle));
@@ -344,11 +352,12 @@ protected:
         assert(mTextures.size() > 0);
         CD3DX12_DESCRIPTOR_RANGE texTable;
         texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, static_cast<uint>(mTextures.size()), 0, 0); // t0, space0
-        CD3DX12_ROOT_PARAMETER slotRootParams[4];
+        CD3DX12_ROOT_PARAMETER slotRootParams[5];
         slotRootParams[0].InitAsConstantBufferView(0); // MVP matrix
         slotRootParams[1].InitAsConstantBufferView(1);  // per-object data
-        slotRootParams[2].InitAsShaderResourceView(0,1); // all material data (t0, space1)
-        slotRootParams[3].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);  // all the textures
+        slotRootParams[2].InitAsShaderResourceView(0, 1); // all material data (t0, space1)
+        slotRootParams[3].InitAsShaderResourceView(1, 1); // instance data (t1, space1)
+        slotRootParams[4].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);  // all the textures
         auto samplers = GetStaticSamplers();
         CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc((sizeof(slotRootParams) / sizeof(CD3DX12_ROOT_PARAMETER)), slotRootParams, (uint)samplers.size(), samplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
         ComPtr<ID3DBlob> serializedRootSig = nullptr;
@@ -465,6 +474,36 @@ protected:
         geometry->drawArgs["grid"]     = gridSubmesh;
         geometry->drawArgs["box"]      = boxSubmesh;
         mGeometries[geometry->name]    = move(geometry);
+
+        assert(mTextures.size() > 0);
+        int matIndex = 0;
+        float width = 20.0f;
+        float height = 20.0f;
+        float depth = 20.0f;
+        float sX = -0.5f * width;
+        float sY = -0.5f * height;
+        float sZ = -0.5f * height;
+        float dx = width / 4;
+        float dy = height / 4;
+        float dz = depth / 4;
+        for (int x = 0; x < 5; x++) {
+            for (int y = 0; y < 5; y++) {
+                for (int z = 0; z < 5; z++) {
+                    InstanceData instData = {};
+                    instData.worldMatrix = XMFLOAT4X4(
+                        1.0f, 0.0f, 0.0f, sX + x * dx,
+                        0.0f, 1.0f, 0.0f, sY + y * dy,
+                        0.0f, 0.0f, 1.0f, sZ + z * dz,
+                        0.0f, 0.0f, 0.0f, 1.0f);
+                    instData.materialIndex = (++matIndex % mTextures.size());
+                    mBoxInstances.push_back(instData);
+                }
+            }
+        }
+        mInstDataBuffer = make_unique<UploadBuffer<InstanceData>>(m_d3dDevice.Get(), mBoxInstances.size(), false);
+        for (int i = 0; i < mBoxInstances.size(); i++) {
+            mInstDataBuffer->CopyData(i, mBoxInstances[i]);
+        }
     }
     void BuildMaterials() {
         mMaterials["darkGreen"]              = make_unique<ShaderMaterialData>();
@@ -517,17 +556,19 @@ private:
     unordered_map<string, ComPtr<ID3DBlob>>               mShaders;
     unordered_map<string, unique_ptr<ShaderMaterialData>> mMaterials;
     unordered_map<string, unique_ptr<Texture>>            mTextures;
+    vector<InstanceData>                                  mBoxInstances;
     vector<D3D12_INPUT_ELEMENT_DESC>                      mInputLayout;
     unique_ptr<UploadBuffer<SceneConstants>>              mSceneConstants = nullptr;
     unique_ptr<UploadBuffer<ShaderMaterialData>>          mMatBuffer = nullptr;
     unique_ptr<UploadBuffer<ShaderPerObjectData>>         mObjectBuffer = nullptr;
+    unique_ptr<UploadBuffer<InstanceData>>                mInstDataBuffer = nullptr;
     ComPtr<ID3D12RootSignature>                           mRootSignature = nullptr;
     ComPtr<ID3D12PipelineState>                           mSimplePipeline = nullptr;
     ComPtr<ID3D12DescriptorHeap>                          mTextureSrvHeap = nullptr;
     float mRadius     = 5.0f;
     float mPhi        = XM_PIDIV4;
     float mTheta      = 2.0f * XM_PI;
-    XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
+    //XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
     XMFLOAT4X4 mView  = MathHelper::Identity4x4();
     XMFLOAT4X4 mProj  = MathHelper::Identity4x4();
     POINT mLastMousePos;
