@@ -32,6 +32,7 @@ set (PROJECTS
      compute_add
      first_person_cam
      dynamic_indexing
-     instancing_culling)
+     instancing_culling
+     picking)
 
 buildAllProjects()

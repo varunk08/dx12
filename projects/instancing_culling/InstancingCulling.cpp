@@ -376,7 +376,8 @@ protected:
         assert(mTextures.size() > 0);
 
         mSceneConstants           = make_unique<UploadBuffer<SceneConstants>>(m_d3dDevice.Get(), 1, true);
-        mMatBuffer                = make_unique<UploadBuffer<ShaderMaterialData>>(m_d3dDevice.Get(), mMaterials.size(), false);
+        const UINT numMaterials   = static_cast<UINT>(mMaterials.size());
+        mMatBuffer                = make_unique<UploadBuffer<ShaderMaterialData>>(m_d3dDevice.Get(), numMaterials, false);
         int mIndex                = 0;
         for (auto& mat : mMaterials) {
             mMatBuffer->CopyData(mIndex++, *mat.second.get());
@@ -500,7 +501,7 @@ protected:
                 }
             }
         }
-        mInstDataBuffer = make_unique<UploadBuffer<InstanceData>>(m_d3dDevice.Get(), mBoxInstances.size(), false);
+        mInstDataBuffer = make_unique<UploadBuffer<InstanceData>>(m_d3dDevice.Get(), static_cast<UINT>(mBoxInstances.size()), false);
         for (int i = 0; i < mBoxInstances.size(); i++) {
             mInstDataBuffer->CopyData(i, mBoxInstances[i]);
         }
