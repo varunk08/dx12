@@ -1,594 +1,703 @@
-/***************************************************************************
-PICKING DEMO
-- modify instancing and culling demo to picking demo
-- change color of cube picked
-
-Stretch:
-- import 3D model using Assing/glTf
-- load multiple models into scene
-- change silhouette of current model picked
-
-****************************************************************************/
-#include <array>
-#include <unordered_map>
-#include <string>
-#include <memory>
-#include <vector>
-#include <DirectXColors.h>
+#include <iostream>
+#include "DirectXColors.h"
+#include "windows.h"
 #include "BaseApp.h"
-#include "BaseUtil.h"
-#include "BaseTimer.h"
-#include "UploadBuffer.h"
-#include "../common/GeometryGenerator.h"
-#include "../common/d3dx12.h"
+#include "FrameResource.h"
+#include "GeometryGenerator.h"
 
 using namespace std;
-using namespace DirectX;
 using Microsoft::WRL::ComPtr;
-using uint = UINT;
+using namespace DirectX;
 
-#pragma comment (lib, "d3dcompiler.lib")
-#pragma comment (lib, "D3D12.lib")
+#pragma comment(lib, "d3dcompiler.lib")
+#pragma comment(lib, "D3D12.lib")
 
-// ======================================================================
-struct ShaderVertex {
-    DirectX::XMFLOAT3 pos;
-    DirectX::XMFLOAT4 color;
-    DirectX::XMFLOAT2 tex;
-};
+const unsigned int NumFrameResources = 3;
 
-struct SceneConstants {
-    XMFLOAT4X4 viewMatrix = MathHelper::Identity4x4();
-    XMFLOAT4X4 projMatrix = MathHelper::Identity4x4();
-};
-
-struct InstanceData {
-    XMFLOAT4X4 worldMatrix = MathHelper::Identity4x4();
-    uint materialIndex;
-    uint padding0;
-    uint padding1;
-    uint padding2;
-};
-
-struct ShaderMaterialData {
-    XMFLOAT4 color;
-};
-
-struct ShaderPerObjectData {
-    uint materialIndex;
-    uint padding0;
-    uint padding1;
-    uint padding2;
-};
-
-// ======================================================================
-class Camera
+// =====================================================================================================================
+class RenderItem
 {
 public:
-    Camera() {}
-    ~Camera() {
-    }
-    void SetPosition(float x, float y, float z) {
-        mPosition  = XMFLOAT3(x, y, z);
-        mViewDirty = true;
-    }
-    void SetLens(float fovY, float aspect, float zn, float zf) {
-        mFovY             = fovY;
-        mAspect           = aspect;
-        mNearZ            = zn;
-        mFarZ             = zf;
-        mNearWindowHeight = 2.0f * mNearZ * tanf(0.5f*mFovY);
-        mFarWindowHeight  = 2.0f * mFarZ * tanf(0.5f*mFovY);
-        XMMATRIX P        = XMMatrixPerspectiveFovLH(mFovY, mAspect, mNearZ, mFarZ);
-        XMStoreFloat4x4(&mProj, P);
-    }
-    XMMATRIX GetView() const {
-        assert(!mViewDirty);
-        return XMLoadFloat4x4(&mView);
-    }
-    XMMATRIX GetProj() const { return XMLoadFloat4x4(&mProj); }
-    void Walk(float d) {
-        XMVECTOR s = XMVectorReplicate(d);
-        XMVECTOR l = XMLoadFloat3(&mLook);
-        XMVECTOR p = XMLoadFloat3(&mPosition);
-        XMStoreFloat3(&mPosition, XMVectorMultiplyAdd(s, l, p));
-        mViewDirty = true;
-    }
-    void Strafe(float d) {
-        // mPosition += d*mRight
-        XMVECTOR s = XMVectorReplicate(d);
-        XMVECTOR r = XMLoadFloat3(&mRight);
-        XMVECTOR p = XMLoadFloat3(&mPosition);
-        XMStoreFloat3(&mPosition, XMVectorMultiplyAdd(s, r, p));
-        mViewDirty = true;
-    }
-    void UpdateViewMatrix() {
-        if (mViewDirty)
-        {
-            XMVECTOR R = XMLoadFloat3(&mRight);
-            XMVECTOR U = XMLoadFloat3(&mUp);
-            XMVECTOR L = XMLoadFloat3(&mLook);
-            XMVECTOR P = XMLoadFloat3(&mPosition);
-            // Keep camera's axes orthogonal to each other and of unit length.
-            L = XMVector3Normalize(L);
-            U = XMVector3Normalize(XMVector3Cross(L, R));
-            // U, L already ortho-normal, so no need to normalize cross product.
-            R = XMVector3Cross(U, L);
-            // Fill in the view matrix entries.
-            float x = -XMVectorGetX(XMVector3Dot(P, R));
-            float y = -XMVectorGetX(XMVector3Dot(P, U));
-            float z = -XMVectorGetX(XMVector3Dot(P, L));
-            XMStoreFloat3(&mRight, R);
-            XMStoreFloat3(&mUp, U);
-            XMStoreFloat3(&mLook, L);
-            mView(0, 0) = mRight.x;
-            mView(1, 0) = mRight.y;
-            mView(2, 0) = mRight.z;
-            mView(3, 0) = x;
-            mView(0, 1) = mUp.x;
-            mView(1, 1) = mUp.y;
-            mView(2, 1) = mUp.z;
-            mView(3, 1) = y;
-            mView(0, 2) = mLook.x;
-            mView(1, 2) = mLook.y;
-            mView(2, 2) = mLook.z;
-            mView(3, 2) = z;
-            mView(0, 3) = 0.0f;
-            mView(1, 3) = 0.0f;
-            mView(2, 3) = 0.0f;
-            mView(3, 3) = 1.0f;
-            mViewDirty = false;
-        }
-    }
-    void Camera::Pitch(float angle) {
-        // Rotate up and look vector about the right vector.
-        XMMATRIX R = XMMatrixRotationAxis(XMLoadFloat3(&mRight), angle);
-        XMStoreFloat3(&mUp, XMVector3TransformNormal(XMLoadFloat3(&mUp), R));
-        XMStoreFloat3(&mLook, XMVector3TransformNormal(XMLoadFloat3(&mLook), R));
-        mViewDirty = true;
-    }
-    void Camera::RotateY(float angle) {
-        // Rotate the basis vectors about the world y-axis.
-        XMMATRIX R = XMMatrixRotationY(angle);
-        XMStoreFloat3(&mRight, XMVector3TransformNormal(XMLoadFloat3(&mRight), R));
-        XMStoreFloat3(&mUp, XMVector3TransformNormal(XMLoadFloat3(&mUp), R));
-        XMStoreFloat3(&mLook, XMVector3TransformNormal(XMLoadFloat3(&mLook), R));
-        mViewDirty = true;
-    }
-private:
-    // Camera coordinate system with coordinates relative to world space.
-    DirectX::XMFLOAT3 mPosition = { 0.0f, 0.0f, 0.0f };
-    DirectX::XMFLOAT3 mRight    = { 1.0f, 0.0f, 0.0f };
-    DirectX::XMFLOAT3 mUp       = { 0.0f, 1.0f, 0.0f };
-    DirectX::XMFLOAT3 mLook     = { 0.0f, 0.0f, 1.0f };
-    // Cache frustum properties.
-    float mNearZ            = 0.0f;
-    float mFarZ             = 0.0f;
-    float mAspect           = 0.0f;
-    float mFovY             = 0.0f;
-    float mNearWindowHeight = 0.0f;
-    float mFarWindowHeight  = 0.0f;
-    bool mViewDirty         = true;
-    // Cache View/Proj matrices.
-    DirectX::XMFLOAT4X4 mView = MathHelper::Identity4x4();
-    DirectX::XMFLOAT4X4 mProj = MathHelper::Identity4x4();
+    RenderItem() = default;
+
+    XMFLOAT4X4 world_ = MathHelper::Identity4x4();
+    XMFLOAT4X4 texTransform_ = MathHelper::Identity4x4();
+
+    int numFramesDirty_ = NumFrameResources;
+    UINT objCbIndex_ = -1;
+    Material* mat_ = nullptr;
+    MeshGeometry* geo_ = nullptr;
+
+    D3D12_PRIMITIVE_TOPOLOGY primitiveType_ = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    UINT indexCount_ = 0;
+    UINT startIndexLocation_ = 0;
+    int baseVertexLocation_ = 0;
 };
 
-// ======================================================================
+// =====================================================================================================================
 class PickingDemo : public BaseApp
 {
 public:
-    PickingDemo(HINSTANCE hInst)
-    : BaseApp(hInst){
-    }
-    ~PickingDemo() {
-        if (m_d3dDevice != nullptr) {
-            FlushCommandQueue();
-        }
-    }
-    bool Initialize() {
-        bool ret = BaseApp::Initialize();
-        if (ret) {
-            ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
-            m_cbvSrvUavDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-            mCamera.SetPosition(0.0f, 2.0f, -15.0f);
-            LoadTextures();
-            BuildMaterials();
-            BuildGeometry();
-            BuildDescriptorsAndViews();
-            BuildShaders();
-            BuildRootSignature();
-            BuildPipelines();
-            ThrowIfFailed(m_commandList->Close());
-            ID3D12CommandList* cmdLists[] = { m_commandList.Get() };
-            m_commandQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
-            FlushCommandQueue();
-        }
-        else {
-            ::OutputDebugStringA("Error! - Initialize() failed!");
-        }
-        return ret;
+    PickingDemo(HINSTANCE hInstance)
+        :
+        BaseApp(hInstance),
+        theta_(1.3f * XM_PI),
+        phi_(0.4f * XM_PI),
+        radius_(2.5f),
+        currentFrameIndex_(0)
+    {
+        projMatrix_ = MathHelper::Identity4x4();
+        viewMatrix_ = MathHelper::Identity4x4();
+        eyePos_ = { 0.0f, 0.0f, 0.0f };
     }
 
-protected:
-    void LoadTextures() {
-        OutputDebugStringA("Loading textures from: ..\\..\\..\\projects\\Textures\\\n");
-        auto bricks1 = make_unique<Texture>();
-        bricks1->name_ = "bricks1";
-        bricks1->filename_ = L"..\\..\\..\\projects\\Textures\\bricks.dds";
-        ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_d3dDevice.Get(), m_commandList.Get(), bricks1->filename_.c_str(), bricks1->resource_, bricks1->uploadHeap_));
-        auto bricks2 = make_unique<Texture>();
-        bricks2->name_ = "bricks2";
-        bricks2->filename_ = L"..\\..\\..\\projects\\Textures\\bricks2.dds";
-        ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_d3dDevice.Get(), m_commandList.Get(), bricks2->filename_.c_str(), bricks2->resource_, bricks2->uploadHeap_));
-        auto bricks3 = make_unique<Texture>();
-        bricks3->name_ = "bricks3";
-        bricks3->filename_ = L"..\\..\\..\\projects\\Textures\\bricks3.dds";
-        ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_d3dDevice.Get(), m_commandList.Get(), bricks3->filename_.c_str(), bricks3->resource_, bricks3->uploadHeap_));
-        mTextures[bricks1->name_] = move(bricks1);
-        mTextures[bricks2->name_] = move(bricks2);
-        mTextures[bricks3->name_] = move(bricks3);
-    }
-    void OnKeyboardInput(const BaseTimer& gt) {
-        const float dt = gt.DeltaTimeInSecs();
-        if (GetAsyncKeyState('W') & 0x8000) {
-            mCamera.Walk(10.0f*dt);
-        }
-        if (GetAsyncKeyState('S') & 0x8000) {
-            mCamera.Walk(-10.0f*dt);
-        }
-        if (GetAsyncKeyState('A') & 0x8000) {
-            mCamera.Strafe(-10.0f*dt);
-        }
-        if (GetAsyncKeyState('D') & 0x8000) {
-            mCamera.Strafe(10.0f*dt);
-        }
-        mCamera.UpdateViewMatrix();
-    }
-    void OnMouseDown(WPARAM btnState, int x, int y)override {
-        mLastMousePos.x = x;
-        mLastMousePos.y = y;
-        SetCapture(mhMainWnd);
-    }
-    void OnMouseUp(WPARAM btnState, int x, int y)override {
-        ReleaseCapture();
-    }
-    void OnMouseMove(WPARAM btnState, int x, int y)override {
-        if ((btnState & MK_LBUTTON) != 0) {
-            float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
-            float dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
-            mCamera.Pitch(dy);
-            mCamera.RotateY(dx);
-        }
-        mLastMousePos.x = x;
-        mLastMousePos.y = y;
-    }
-    void Draw(const BaseTimer& gt) {
-        ThrowIfFailed(m_directCmdListAlloc->Reset());
-        ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), mSimplePipeline.Get()));
-        m_commandList->RSSetViewports(1, &m_screenViewport);
-        m_commandList->RSSetScissorRects(1, &m_scissorRect);
-        m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
-        m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSlateGray, 0, nullptr);
-        m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
-        m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-        m_commandList->IASetVertexBuffers(0, 1, &mGeometries["scene"]->VertexBufferView());
-        m_commandList->IASetIndexBuffer(&mGeometries["scene"]->IndexBufferView());
-        m_commandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    virtual void OnResize() override;
+    virtual void Update(const BaseTimer& timer) override;
+    virtual void Draw(const BaseTimer& timer) override;
+    bool Initialize() override;
 
-        ID3D12DescriptorHeap* descriptorHeaps[] = { mTextureSrvHeap.Get() };
-        m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-        m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
-        m_commandList->SetGraphicsRootConstantBufferView(0, mSceneConstants->Resource()->GetGPUVirtualAddress());
-        m_commandList->SetGraphicsRootConstantBufferView(1, mObjectBuffer->Resource()->GetGPUVirtualAddress());
-        m_commandList->SetGraphicsRootShaderResourceView(2, mMatBuffer->Resource()->GetGPUVirtualAddress());
-        m_commandList->SetGraphicsRootShaderResourceView(3, mInstDataBuffer->Resource()->GetGPUVirtualAddress());
-        m_commandList->SetGraphicsRootDescriptorTable(4, mTextureSrvHeap->GetGPUDescriptorHandleForHeapStart());
+    virtual void OnMouseDown(WPARAM btnState, int x, int y) override;
+    virtual void OnMouseUp(WPARAM btnState, int x, int y) override;
+    virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
 
-        //m_commandList->DrawIndexedInstanced(mGeometries["scene"]->drawArgs["grid"].indexCount, 1, 0, 0, 0);
-        uint objCBByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(ShaderPerObjectData));
-        m_commandList->SetGraphicsRootConstantBufferView(1, mObjectBuffer->Resource()->GetGPUVirtualAddress() + objCBByteSize);
-        const auto& boxDrawArgs = mGeometries["scene"]->drawArgs["box"];
-        m_commandList->DrawIndexedInstanced(boxDrawArgs.indexCount, static_cast<UINT>(mBoxInstances.size()), boxDrawArgs.startIndexLocation, boxDrawArgs.baseVertexLocation, 0);
-        m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
-        ThrowIfFailed(m_commandList->Close());
-        ID3D12CommandList* cmdsLists[] = { m_commandList.Get() };
-        m_commandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-        // swap the back and front buffers
-        ThrowIfFailed(m_swapChain->Present(0, 0));
-        m_currBackBuffer = (m_currBackBuffer + 1) % SwapChainBufferCount;
-        // Wait until frame commands are complete.  This waiting is inefficient and is
-        // done for simplicity.  Later we will show how to organize our rendering code
-        // so we do not have to wait per frame.
-        FlushCommandQueue();
-    }
-    void Update(const BaseTimer& gt) {
-        OnKeyboardInput(gt);
-        XMMATRIX view = mCamera.GetView();
-        XMMATRIX proj = mCamera.GetProj();
-        //XMMATRIX world = XMLoadFloat4x4(&mWorld);
-        //XMMATRIX worldViewProj = world * view * proj;
-        SceneConstants vpMatrix = { };
-        XMStoreFloat4x4(&vpMatrix.viewMatrix, XMMatrixTranspose(view));
-        XMStoreFloat4x4(&vpMatrix.projMatrix, XMMatrixTranspose(proj));
-        mSceneConstants->CopyData(0, vpMatrix);
-        if ((m_currentFence != 0) && (m_fence->GetCompletedValue() < m_currentFence)) {
-            HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
-            ThrowIfFailed(m_fence->SetEventOnCompletion(m_currentFence, eventHandle));
-            WaitForSingleObject(eventHandle, INFINITE);
-            CloseHandle(eventHandle);
-        }
-    }
-    void OnResize() {
-        BaseApp::OnResize();
-        mCamera.SetLens(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.f);
-    }
-    void BuildPipelines() {
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = { };
-        ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-        psoDesc.InputLayout = {
-            mInputLayout.data(), (UINT)mInputLayout.size()
-        };
-        psoDesc.pRootSignature = mRootSignature.Get();
-        psoDesc.VS = {
-            reinterpret_cast<BYTE*>(mShaders["simpleVS"]->GetBufferPointer()),
-            mShaders["simpleVS"]->GetBufferSize()
-        };
-        psoDesc.PS = {
-            reinterpret_cast<BYTE*>(mShaders["simplePS"]->GetBufferPointer()),
-            mShaders["simplePS"]->GetBufferSize()
-        };
-        psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-        //psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-        psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-        psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-        psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-        psoDesc.SampleMask = UINT_MAX;
-        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        psoDesc.NumRenderTargets = 1;
-        psoDesc.RTVFormats[0] = m_backBufferFormat;
-        psoDesc.SampleDesc.Count = m_4xMsaaEn ? 4 : 1;
-        psoDesc.SampleDesc.Quality = m_4xMsaaEn ? (m_4xMsaaQuality - 1) : 0;
-        psoDesc.DSVFormat = m_depthStencilFormat;
-        HRESULT hr = m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mSimplePipeline));
-        ThrowIfFailed(hr);
-    }
-    void BuildRootSignature() {
-        assert(mTextures.size() > 0);
-        CD3DX12_DESCRIPTOR_RANGE texTable;
-        texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, static_cast<uint>(mTextures.size()), 0, 0); // t0, space0
-        CD3DX12_ROOT_PARAMETER slotRootParams[5];
-        slotRootParams[0].InitAsConstantBufferView(0); // MVP matrix
-        slotRootParams[1].InitAsConstantBufferView(1);  // per-object data
-        slotRootParams[2].InitAsShaderResourceView(0, 1); // all material data (t0, space1)
-        slotRootParams[3].InitAsShaderResourceView(1, 1); // instance data (t1, space1)
-        slotRootParams[4].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);  // all the textures
-        auto samplers = GetStaticSamplers();
-        CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc((sizeof(slotRootParams) / sizeof(CD3DX12_ROOT_PARAMETER)), slotRootParams, (uint)samplers.size(), samplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-        ComPtr<ID3DBlob> serializedRootSig = nullptr;
-        ComPtr<ID3DBlob> errorBlob         = nullptr;
-        HRESULT hr                         = D3D12SerializeRootSignature(&rootSignDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-        if (errorBlob != nullptr) {
-            ::OutputDebugStringA(static_cast<char*>(errorBlob->GetBufferPointer()));
-        }
-        ThrowIfFailed(hr);
-        ThrowIfFailed(m_d3dDevice->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(), IID_PPV_ARGS(&mRootSignature)));
-    }
-    void BuildDescriptorsAndViews() {
-        assert(mMaterials.size() > 0);
-        assert(mGeometries.size() > 0);
-        assert(mGeometries["scene"]->drawArgs.size() > 0);
-        assert(mTextures.size() > 0);
+    void OnKeyboardInput(const BaseTimer& timer);
+    void UpdateCamera(const BaseTimer& timer);
+    void AnimateMaterials(const BaseTimer& timer);
+    void UpdateObjectCBs(const BaseTimer& timer);
+    void UpdateMaterialCBs(const BaseTimer& timer);
+    void UpdateMainPassCBs(const BaseTimer& timer);
 
-        mSceneConstants           = make_unique<UploadBuffer<SceneConstants>>(m_d3dDevice.Get(), 1, true);
-        const UINT numMaterials   = static_cast<UINT>(mMaterials.size());
-        mMatBuffer                = make_unique<UploadBuffer<ShaderMaterialData>>(m_d3dDevice.Get(), numMaterials, false);
-        int mIndex                = 0;
-        for (auto& mat : mMaterials) {
-            mMatBuffer->CopyData(mIndex++, *mat.second.get());
-        }
-        const uint NumObjects = static_cast<uint>(mGeometries["scene"]->drawArgs.size());
-        mObjectBuffer = make_unique<UploadBuffer<ShaderPerObjectData>>(m_d3dDevice.Get(), NumObjects, true);
-        for (uint i = 0; i < NumObjects; i++) {
-            ShaderPerObjectData objData = {};
-            objData.materialIndex = i;
-            mObjectBuffer->CopyData(i, objData);
-        }
-        D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
-        heapDesc.NumDescriptors             = static_cast<uint>(mTextures.size());
-        heapDesc.Type                       = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heapDesc.Flags                      = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&mTextureSrvHeap)));
-        CD3DX12_CPU_DESCRIPTOR_HANDLE hDesc(mTextureSrvHeap->GetCPUDescriptorHandleForHeapStart());
-        auto bricks1Res                         = mTextures["bricks1"]->resource_;
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.Shader4ComponentMapping         = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvDesc.Format                          = bricks1Res->GetDesc().Format;
-        srvDesc.ViewDimension                   = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MostDetailedMip       = 0;
-        srvDesc.Texture2D.MipLevels             = bricks1Res->GetDesc().MipLevels;
-        srvDesc.Texture2D.ResourceMinLODClamp   = 0.0f;
-        m_d3dDevice->CreateShaderResourceView(bricks1Res.Get(), &srvDesc, hDesc);
-        auto bricks2Res             = mTextures["bricks2"]->resource_;
-        srvDesc.Format              = bricks2Res->GetDesc().Format;
-        srvDesc.Texture2D.MipLevels = bricks2Res->GetDesc().MipLevels;
-        hDesc.Offset(1, m_cbvSrvUavDescriptorSize);
-        m_d3dDevice->CreateShaderResourceView(bricks2Res.Get(), &srvDesc, hDesc);
-        auto bricks3Res             = mTextures["bricks3"]->resource_;
-        srvDesc.Format              = bricks3Res->GetDesc().Format;
-        srvDesc.Texture2D.MipLevels = bricks3Res->GetDesc().MipLevels;
-        hDesc.Offset(1, m_cbvSrvUavDescriptorSize);
-        m_d3dDevice->CreateShaderResourceView(bricks3Res.Get(), &srvDesc, hDesc);
-    }
-    void BuildShaders() {
-        OutputDebugStringA("Building shader - ..\\..\\..\\projects\\picking\\shaders\\simpleRender.hlsl\n");
-        mShaders["simpleVS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\picking\\shaders\\simpleRender.hlsl", nullptr, "SimpleVS", "vs_5_1");
-        mShaders["simplePS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\picking\\shaders\\simpleRender.hlsl", nullptr, "SimplePS", "ps_5_1");
-        mInputLayout = {
-            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        };
-    }
-    void BuildGeometry() {
-        GeometryGenerator generator;
-        MeshData grid                  = generator.CreateGrid(20.0f, 20.0f, 40, 40);
-        MeshData box                   = generator.CreateBox(2.0f, 2.0f, 2.0f, 1); // box comes after grid.
-        uint gridVertexOffset          = static_cast<uint>(0);
-        uint gridIndexOffset           = static_cast<uint>(0);
-        uint boxVertexOffset           = static_cast<uint>(gridVertexOffset + grid.m_vertices.size());
-        uint boxIndexOffset            = static_cast<uint>(gridIndexOffset + grid.m_indices32.size());
-        SubmeshGeometry gridSubmesh    = {};
-        gridSubmesh.indexCount         = static_cast<uint>(grid.m_indices32.size());
-        gridSubmesh.startIndexLocation = gridIndexOffset;
-        gridSubmesh.baseVertexLocation = gridVertexOffset;
-        SubmeshGeometry boxSubmesh     = {};
-        boxSubmesh.indexCount          = static_cast<uint>(box.m_indices32.size());
-        boxSubmesh.startIndexLocation  = boxIndexOffset;
-        boxSubmesh.baseVertexLocation  = boxVertexOffset;
-        const uint NumVertices         = static_cast<uint>(grid.m_vertices.size() + box.m_vertices.size());
-        const uint NumIndices          = static_cast<uint>(grid.m_indices32.size() + box.m_indices32.size());
-        vector<ShaderVertex> vertices(NumVertices);
-        uint k = 0;
-        for (size_t i = 0; i < grid.m_vertices.size(); ++i, k++) {
-            vertices[k].pos = grid.m_vertices[i].m_position;
-            vertices[k].color = XMFLOAT4(DirectX::Colors::DarkGreen);
-            vertices[k].tex = grid.m_vertices[i].m_texC;
-        }
-        for (size_t i = 0; i < box.m_vertices.size(); ++i, k++) {
-            vertices[k].pos = box.m_vertices[i].m_position;
-            vertices[k].color = XMFLOAT4(DirectX::Colors::Maroon);
-            vertices[k].tex = box.m_vertices[i].m_texC;
-        }
-        vector<uint32_t> indices;
-        indices.insert(indices.end(), cbegin(grid.m_indices32), cend(grid.m_indices32));
-        indices.insert(indices.end(), cbegin(box.m_indices32), cend(box.m_indices32));
-        const UINT vbNumBytes             = NumVertices * sizeof(ShaderVertex);
-        const UINT ibNumBytes             = NumIndices * sizeof(uint32_t);
-        unique_ptr<MeshGeometry> geometry = make_unique<MeshGeometry>();
-        geometry->name                    = "scene";
-        ThrowIfFailed(D3DCreateBlob(vbNumBytes, &geometry->vertexBufferCPU));
-        CopyMemory(geometry->vertexBufferCPU->GetBufferPointer(), vertices.data(), vbNumBytes);
-        ThrowIfFailed(D3DCreateBlob(ibNumBytes, &geometry->indexBufferCPU));
-        CopyMemory(geometry->indexBufferCPU->GetBufferPointer(), indices.data(), ibNumBytes);
-        geometry->vertexBufferGPU      = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(), m_commandList.Get(), vertices.data(), vbNumBytes, geometry->vertexBufferUploader);
-        geometry->indexBufferGPU       = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(), m_commandList.Get(), indices.data(), ibNumBytes, geometry->indexBufferUploader);
-        geometry->vertexByteStride     = sizeof(ShaderVertex);
-        geometry->vertexBufferByteSize = vbNumBytes;
-        geometry->indexFormat          = DXGI_FORMAT_R32_UINT;
-        geometry->indexBufferByteSize  = ibNumBytes;
-        geometry->drawArgs["grid"]     = gridSubmesh;
-        geometry->drawArgs["box"]      = boxSubmesh;
-        mGeometries[geometry->name]    = move(geometry);
+    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
+    void LoadTextures();
+    void BuildRootSignature();
+    void BuildDescriptorHeaps();
+    void BuildShadersAndInputLayout();
+    void BuildShapeGeometry();
+    void BuildMaterials();
+    void BuildRenderItems();
+    void BuildFrameResources();
+    void BuildPipelines();
 
-        assert(mTextures.size() > 0);
-        int matIndex = 0;
-        float width = 20.0f;
-        float height = 20.0f;
-        float depth = 20.0f;
-        float sX = -0.5f * width;
-        float sY = -0.5f * height;
-        float sZ = -0.5f * height;
-        float dx = width / 4;
-        float dy = height / 4;
-        float dz = depth / 4;
-        for (int x = 0; x < 5; x++) {
-            for (int y = 0; y < 5; y++) {
-                for (int z = 0; z < 5; z++) {
-                    InstanceData instData = {};
-                    instData.worldMatrix = XMFLOAT4X4(
-                        1.0f, 0.0f, 0.0f, sX + x * dx,
-                        0.0f, 1.0f, 0.0f, sY + y * dy,
-                        0.0f, 0.0f, 1.0f, sZ + z * dz,
-                        0.0f, 0.0f, 0.0f, 1.0f);
-                    instData.materialIndex = (++matIndex % mTextures.size());
-                    mBoxInstances.push_back(instData);
-                }
-            }
-        }
-        mInstDataBuffer = make_unique<UploadBuffer<InstanceData>>(m_d3dDevice.Get(), static_cast<UINT>(mBoxInstances.size()), false);
-        for (int i = 0; i < mBoxInstances.size(); i++) {
-            mInstDataBuffer->CopyData(i, mBoxInstances[i]);
-        }
-    }
-    void BuildMaterials() {
-        mMaterials["darkGreen"]              = make_unique<ShaderMaterialData>();
-        mMaterials["maroon"]                 = make_unique<ShaderMaterialData>();
-        mMaterials["darkGreen"].get()->color = XMFLOAT4(DirectX::Colors::DarkGreen);
-        mMaterials["maroon"].get()->color    = XMFLOAT4(DirectX::Colors::Maroon);
-    }
+    void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& items);
 
 private:
-    array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers() {
-        const CD3DX12_STATIC_SAMPLER_DESC pointWrap(0, // shaderRegister
-                                                    D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
-                                                    D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
-                                                    D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
-                                                    D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
-        const CD3DX12_STATIC_SAMPLER_DESC pointClamp(1, // shaderRegister
-                                                     D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
-                                                     D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
-                                                     D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
-                                                     D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
-        const CD3DX12_STATIC_SAMPLER_DESC linearWrap(2, // shaderRegister
-                                                     D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
-                                                     D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
-                                                     D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
-                                                     D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
-        const CD3DX12_STATIC_SAMPLER_DESC linearClamp(3, // shaderRegister
-                                                      D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
-                                                      D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
-                                                      D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
-                                                      D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
-        const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(4, // shaderRegister
-                                                          D3D12_FILTER_ANISOTROPIC, // filter
-                                                          D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
-                                                          D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
-                                                          D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressW
-                                                          0.0f,                             // mipLODBias
-                                                          8);                               // maxAnisotropy
-        const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(5, // shaderRegister
-                                                           D3D12_FILTER_ANISOTROPIC, // filter
-                                                           D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
-                                                           D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
-                                                           D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressW
-                                                           0.0f,                              // mipLODBias
-                                                           8);                                // maxAnisotropy
-        return { pointWrap, pointClamp, linearWrap, linearClamp, anisotropicWrap, anisotropicClamp };
-    }
+    ComPtr<ID3D12RootSignature> rootSignature_ = nullptr;
+    ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_ = nullptr;
+    ComPtr<ID3D12PipelineState> opaqueGfxPipe_ = nullptr;
 
-    Camera                                                mCamera;
-    unordered_map<string, unique_ptr<MeshGeometry>>       mGeometries;
-    unordered_map<string, ComPtr<ID3DBlob>>               mShaders;
-    unordered_map<string, unique_ptr<ShaderMaterialData>> mMaterials;
-    unordered_map<string, unique_ptr<Texture>>            mTextures;
-    vector<InstanceData>                                  mBoxInstances;
-    vector<D3D12_INPUT_ELEMENT_DESC>                      mInputLayout;
-    unique_ptr<UploadBuffer<SceneConstants>>              mSceneConstants = nullptr;
-    unique_ptr<UploadBuffer<ShaderMaterialData>>          mMatBuffer = nullptr;
-    unique_ptr<UploadBuffer<ShaderPerObjectData>>         mObjectBuffer = nullptr;
-    unique_ptr<UploadBuffer<InstanceData>>                mInstDataBuffer = nullptr;
-    ComPtr<ID3D12RootSignature>                           mRootSignature = nullptr;
-    ComPtr<ID3D12PipelineState>                           mSimplePipeline = nullptr;
-    ComPtr<ID3D12DescriptorHeap>                          mTextureSrvHeap = nullptr;
-    float mRadius     = 5.0f;
-    float mPhi        = XM_PIDIV4;
-    float mTheta      = 2.0f * XM_PI;
-    //XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
-    XMFLOAT4X4 mView  = MathHelper::Identity4x4();
-    XMFLOAT4X4 mProj  = MathHelper::Identity4x4();
-    POINT mLastMousePos;
+    std::unordered_map<std::string, std::unique_ptr<Texture>> textures_;
+    std::unordered_map<std::string, ComPtr<ID3DBlob>> shaders_;
+    std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> geometries_;
+    std::unordered_map<std::string, std::unique_ptr<Material>> materials_;
+
+    std::vector<D3D12_INPUT_ELEMENT_DESC> inputLayout_;
+    std::vector<std::unique_ptr<RenderItem>> allItems_;
+    std::vector<RenderItem*> opaqueItems_;
+    std::vector<std::unique_ptr<FrameResource::Resources>> frameResources_;
+    FrameResource::Resources* currentFrameRes_ = nullptr;
+    FrameResource::PassConstants mainPassCB_;
+
+    XMFLOAT4X4 projMatrix_;
+    XMFLOAT4X4 viewMatrix_;
+    XMFLOAT3 eyePos_;
+
+    float theta_;
+    float phi_;
+    float radius_;
+    POINT lastMousePos_;
+
+    unsigned int currentFrameIndex_;
 };
 
-// ======================================================================
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, int nShowCmd) {
+// =====================================================================================================================
+void PickingDemo::OnResize()
+{
+    BaseApp::OnResize();
+
+    XMMATRIX proj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+    XMStoreFloat4x4(&projMatrix_, proj);
+}
+
+// =====================================================================================================================
+void PickingDemo::Update(const BaseTimer& timer)
+{
+    OnKeyboardInput(timer);
+    UpdateCamera(timer);
+
+    currentFrameIndex_ = (currentFrameIndex_ + 1) % NumFrameResources;
+    currentFrameRes_ = frameResources_[currentFrameIndex_].get();
+
+    if ((currentFrameRes_->m_fence != 0) && (m_fence->GetCompletedValue() < currentFrameRes_->m_fence))
+    {
+        HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
+        ThrowIfFailed(m_fence->SetEventOnCompletion(currentFrameRes_->m_fence, eventHandle));
+        WaitForSingleObject(eventHandle, INFINITE);
+        CloseHandle(eventHandle);
+    }
+
+    AnimateMaterials(timer);
+    UpdateObjectCBs(timer);
+    UpdateMaterialCBs(timer);
+    UpdateMainPassCBs(timer);
+
+}
+
+// ====================================================================================================================
+void PickingDemo::Draw(const BaseTimer& timer)
+{
+    auto cmdAllocator = currentFrameRes_->m_cmdListAlloc;
+
+    // Reset the allocator and the command list.
+    ThrowIfFailed(cmdAllocator->Reset());
+    ThrowIfFailed(m_commandList->Reset(cmdAllocator.Get(), opaqueGfxPipe_.Get()));
+
+    // Reset the viewport
+    m_commandList->RSSetViewports(1, &m_screenViewport);
+    m_commandList->RSSetScissorRects(1, &m_scissorRect);
+
+    // Barrier transition ofcurrent back buffer from present image to render target
+    m_commandList->ResourceBarrier(1,
+                   &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                                     D3D12_RESOURCE_STATE_PRESENT,
+                                     D3D12_RESOURCE_STATE_RENDER_TARGET));
+
+    // Perform operations on the render target image.
+    m_commandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::LightYellow, 0, nullptr);
+    m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+    m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
+
+    ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap_.Get() };
+    m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+    m_commandList->SetGraphicsRootSignature(rootSignature_.Get());
+
+    auto passCB = currentFrameRes_->m_passCb->Resource();
+    m_commandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+    DrawRenderItems(m_commandList.Get(), opaqueItems_);
+
+    m_commandList->ResourceBarrier(1,
+                   &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                                     D3D12_RESOURCE_STATE_RENDER_TARGET,
+                                     D3D12_RESOURCE_STATE_PRESENT));
+
+    // Close command list and execute on command queue.
+    ThrowIfFailed(m_commandList->Close());
+    ID3D12CommandList* cmdLists[] = { m_commandList.Get() };
+    m_commandQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
+
+    // Swap chain buffer swap
+    ThrowIfFailed(m_swapChain->Present(0, 0));
+    m_currBackBuffer = (m_currBackBuffer + 1) % SwapChainBufferCount;
+
+    currentFrameRes_->m_fence = ++m_currentFence;
+    m_commandQueue->Signal(m_fence.Get(), m_currentFence);
+}
+
+// ====================================================================================================================
+bool PickingDemo::Initialize()
+{
+    auto success = BaseApp::Initialize();
+
+    if (success == true)
+    {
+        ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
+
+        LoadTextures();
+        BuildRootSignature();
+        BuildDescriptorHeaps();
+        BuildShadersAndInputLayout();
+        BuildShapeGeometry();
+        BuildMaterials();
+        BuildRenderItems();
+        BuildFrameResources();
+        BuildPipelines();
+
+        ThrowIfFailed(m_commandList->Close());
+        ID3D12CommandList* cmdLists[] = { m_commandList.Get() };
+        m_commandQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
+
+        FlushCommandQueue();
+    }
+
+    return success;
+}
+
+// =====================================================================================================================
+void PickingDemo::LoadTextures()
+{
+    auto woodCrateTex = std::make_unique<Texture>();
+    woodCrateTex->name_ = "woodCrateTex";
+    woodCrateTex->filename_ = L"..\\textures\\WoodCrate01.dds";
+
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_d3dDevice.Get(),
+                                                      m_commandList.Get(),
+                                                      woodCrateTex->filename_.c_str(),
+                                                      woodCrateTex->resource_,
+                                                      woodCrateTex->uploadHeap_));
+
+    textures_[woodCrateTex->name_] = std::move(woodCrateTex);
+}
+
+// =====================================================================================================================
+void PickingDemo::BuildRootSignature()
+{
+    CD3DX12_DESCRIPTOR_RANGE texTable;
+    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+
+    CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+
+    slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
+    slotRootParameter[1].InitAsConstantBufferView(0);
+    slotRootParameter[2].InitAsConstantBufferView(1);
+    slotRootParameter[3].InitAsConstantBufferView(2);
+
+    auto staticSamplers = GetStaticSamplers();
+
+    // a root signature consists of root parameters
+    // root parameters can be (descriptor tables, descriptor, root constant)
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4,
+                        slotRootParameter,
+                        static_cast<uint32_t>(staticSamplers.size()),
+                        staticSamplers.data(),
+                        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    ComPtr<ID3DBlob> serializedRootSig = nullptr;
+    ComPtr<ID3DBlob> errorBlob = nullptr;
+
+    HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc,
+                         D3D_ROOT_SIGNATURE_VERSION_1,
+                         serializedRootSig.GetAddressOf(),
+                         errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA(static_cast<char*>(errorBlob->GetBufferPointer()));
+    }
+
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(m_d3dDevice->CreateRootSignature(0,
+                           serializedRootSig->GetBufferPointer(),
+                           serializedRootSig->GetBufferSize(),
+                           IID_PPV_ARGS(rootSignature_.GetAddressOf())));
+}
+
+// ====================================================================================================================
+void PickingDemo::BuildDescriptorHeaps()
+{
+    D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc =  {};
+    srvHeapDesc.NumDescriptors = 1;
+    srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&srvDescriptorHeap_)));
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(srvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart());
+
+    auto woodCrateTex = textures_["woodCrateTex"]->resource_;
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; // swizzling the RGBA components.
+    srvDesc.Format = woodCrateTex->GetDesc().Format; // the DXGI_FORMAT that the GPU will interpret this as.
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; // whether the resource is a 2D, 3D res etc.
+    srvDesc.Texture2D.MostDetailedMip = 0; // 0 to miplevels - 1
+    srvDesc.Texture2D.MipLevels = woodCrateTex->GetDesc().MipLevels;
+    srvDesc.Texture2D.ResourceMinLODClamp = 0.0f; // minimum mipmap level that can be accessed.
+
+    m_d3dDevice->CreateShaderResourceView(woodCrateTex.Get(), &srvDesc, hDescriptor);
+}
+
+// =====================================================================================================================
+void PickingDemo::BuildShadersAndInputLayout()
+{
+    shaders_["standardVS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\Picking\\shaders\\simpleVsPs.hlsl", nullptr, "VS", "vs_5_0");
+    shaders_["opaquePS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\Picking\\shaders\\simpleVsPs.hlsl", nullptr, "PS", "ps_5_0");
+
+    inputLayout_ =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+}
+
+// =====================================================================================================================
+void PickingDemo::BuildShapeGeometry()
+{
+    GeometryGenerator geoGen;
+    MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
+
+    SubmeshGeometry boxSubmesh;
+    boxSubmesh.indexCount = static_cast<UINT>(box.m_indices32.size());
+    boxSubmesh.startIndexLocation = 0;
+    boxSubmesh.baseVertexLocation = 0;
+
+    std::vector<FrameResource::Vertex> vertices(box.m_vertices.size());
+
+    for (uint32_t i = 0; i < box.m_vertices.size(); ++i)
+    {
+        vertices[i].pos    = box.m_vertices[i].m_position;
+        vertices[i].normal = box.m_vertices[i].m_normal;
+        vertices[i].texC   = box.m_vertices[i].m_texC;
+    }
+
+    std::vector<std::uint16_t> indices = box.GetIndices16();
+
+    const UINT vbByteSize = static_cast<UINT>(vertices.size() * sizeof(FrameResource::Vertex));
+    const UINT ibBytesSize = static_cast<UINT>(indices.size() * sizeof(std::uint16_t));
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->name = "boxGeo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->vertexBufferCPU));
+    CopyMemory(geo->vertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibBytesSize, &geo->indexBufferCPU));
+    CopyMemory(geo->indexBufferCPU->GetBufferPointer(), indices.data(), ibBytesSize);
+
+    geo->vertexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+                             m_commandList.Get(),
+                             vertices.data(),
+                             vbByteSize,
+                             geo->vertexBufferUploader);
+
+    geo->indexBufferGPU = BaseUtil::CreateDefaultBuffer(m_d3dDevice.Get(),
+                            m_commandList.Get(),
+                            indices.data(),
+                            ibBytesSize,
+                            geo->indexBufferUploader);
+
+    geo->vertexByteStride = sizeof(FrameResource::Vertex);
+    geo->vertexBufferByteSize = vbByteSize;
+    geo->indexFormat = DXGI_FORMAT_R16_UINT;
+    geo->indexBufferByteSize = ibBytesSize;
+    geo->drawArgs["box"] = boxSubmesh;
+
+    geometries_[geo->name] = std::move(geo);
+}
+
+// ====================================================================================================================
+void PickingDemo::BuildMaterials()
+{
+    auto woodCrate = std::make_unique<Material>();
+    woodCrate->m_name = "woodCrate";
+    woodCrate->m_matCbIndex = 0;
+    woodCrate->m_diffuseSrvHeapIndex = 0;
+    woodCrate->m_diffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    woodCrate->m_fresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+    woodCrate->m_roughness = 0.2f;
+
+    materials_["woodCrate"] = std::move(woodCrate);
+}
+
+// ====================================================================================================================
+void PickingDemo::BuildRenderItems()
+{
+    auto boxItem = std::make_unique<RenderItem>();
+    boxItem->objCbIndex_ = 0;
+    boxItem->mat_ = materials_["woodCrate"].get();
+    boxItem->geo_ = geometries_["boxGeo"].get();
+    boxItem->primitiveType_ = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    boxItem->indexCount_ = boxItem->geo_->drawArgs["box"].indexCount;
+    boxItem->startIndexLocation_ = boxItem->geo_->drawArgs["box"].startIndexLocation;
+    boxItem->baseVertexLocation_ = boxItem->geo_->drawArgs["box"].baseVertexLocation;
+    allItems_.push_back(std::move(boxItem));
+
+    for (auto& e : allItems_)
+    {
+        opaqueItems_.push_back(e.get());
+    }
+}
+
+// =====================================================================================================================
+void PickingDemo::BuildFrameResources()
+{
+    using namespace FrameResource;
+    for (int i = 0; i < NumFrameResources; ++i)
+    {
+        frameResources_.push_back(std::make_unique<Resources>(m_d3dDevice.Get(), 1, static_cast<UINT>(allItems_.size()), static_cast<UINT>(materials_.size())));
+    }
+}
+
+// =====================================================================================================================
+void PickingDemo::BuildPipelines()
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePipeDesc = {};
+    ZeroMemory(&opaquePipeDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    opaquePipeDesc.InputLayout = { inputLayout_.data(), static_cast<UINT>(inputLayout_.size()) };
+    opaquePipeDesc.pRootSignature = rootSignature_.Get();
+    opaquePipeDesc.VS = { reinterpret_cast<BYTE*>(shaders_["standardVS"]->GetBufferPointer()), shaders_["standardVS"]->GetBufferSize() };
+    opaquePipeDesc.PS = { reinterpret_cast<BYTE*>(shaders_["opaquePS"]->GetBufferPointer()), shaders_["opaquePS"]->GetBufferSize() };
+    opaquePipeDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    opaquePipeDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    opaquePipeDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    opaquePipeDesc.SampleMask = UINT_MAX;
+    opaquePipeDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    opaquePipeDesc.NumRenderTargets = 1;
+    opaquePipeDesc.RTVFormats[0] = m_backBufferFormat;
+    opaquePipeDesc.SampleDesc.Count = m_4xMsaaEn ? 4 : 1;
+    opaquePipeDesc.SampleDesc.Quality = m_4xMsaaEn ? m_4xMsaaQuality - 1 : 0;
+    opaquePipeDesc.DSVFormat = m_depthStencilFormat;
+    ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&opaquePipeDesc, IID_PPV_ARGS(&opaqueGfxPipe_)));
+}
+
+// =====================================================================================================================
+void PickingDemo::DrawRenderItems(ID3D12GraphicsCommandList * cmdList, const std::vector<RenderItem*>& items)
+{
+    UINT objCBByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::ObjectConstants));
+    UINT matCBByteSize = BaseUtil::CalcConstantBufferByteSize(sizeof(FrameResource::MaterialConstants));
+
+    auto objectCB = currentFrameRes_->m_objCb->Resource();
+    auto matCB = currentFrameRes_->m_matCb->Resource();
+
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        auto ri = items[i];
+
+        cmdList->IASetVertexBuffers(0, 1, &ri->geo_->VertexBufferView());
+        cmdList->IASetIndexBuffer(&ri->geo_->IndexBufferView());
+        cmdList->IASetPrimitiveTopology(ri->primitiveType_);
+
+        CD3DX12_GPU_DESCRIPTOR_HANDLE tex(srvDescriptorHeap_->GetGPUDescriptorHandleForHeapStart());
+        tex.Offset(ri->mat_->m_diffuseSrvHeapIndex, m_cbvSrvUavDescriptorSize);
+
+        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->objCbIndex_ * objCBByteSize;
+        D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->mat_->m_matCbIndex * matCBByteSize;
+
+        cmdList->SetGraphicsRootDescriptorTable(0, tex);
+        cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+        cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+        cmdList->DrawIndexedInstanced(ri->indexCount_, 1, ri->startIndexLocation_, ri->baseVertexLocation_, 0);
+    }
+}
+
+// =====================================================================================================================
+void PickingDemo::OnMouseDown(WPARAM btnState, int x, int y)
+{
+    lastMousePos_.x = x;
+    lastMousePos_.y = y;
+
+    SetCapture(mhMainWnd);
+}
+
+// =====================================================================================================================
+void PickingDemo::OnMouseUp(WPARAM btnState, int x, int y)
+{
+    ReleaseCapture();
+}
+
+// =====================================================================================================================
+void PickingDemo::OnMouseMove(WPARAM btnState, int x, int y)
+{
+    if ((btnState & MK_LBUTTON) != 0)
+    {
+      float dx = XMConvertToRadians(0.25f * static_cast<float>(x - lastMousePos_.x));
+      float dy = XMConvertToRadians(0.25f * static_cast<float>(y - lastMousePos_.y));
+
+      theta_ += dx;
+      phi_   += dy;
+      phi_ = MathHelper::Clamp(phi_, 0.1f, MathHelper::Pi - 0.1f);
+    }
+    else if ((btnState & MK_RBUTTON) != 0)
+    {
+      float dx = 0.05f * static_cast<float>(x - lastMousePos_.x);
+      float dy = 0.05f * static_cast<float>(y - lastMousePos_.y);
+
+      radius_ += (dx - dy);
+
+      radius_ = MathHelper::Clamp(radius_, 5.0f, 150.0f);
+    }
+
+    lastMousePos_.x = x;
+    lastMousePos_.y = y;
+}
+
+// =====================================================================================================================
+void PickingDemo::OnKeyboardInput(const BaseTimer & timer)
+{
+}
+
+// =====================================================================================================================
+void PickingDemo::UpdateCamera(const BaseTimer & timer)
+{
+    // Convert spherical to Cartesian Coordinates
+    eyePos_.x = radius_ * sinf(phi_) * cosf(theta_);
+    eyePos_.y = radius_ * cosf(phi_);
+    eyePos_.z = radius_ * sinf(phi_) * sinf(theta_);
+
+    XMVECTOR pos = XMVectorSet(eyePos_.x, eyePos_.y, eyePos_.z, 1.0f);
+    XMVECTOR target = XMVectorZero();
+    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+    XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+    XMStoreFloat4x4(&viewMatrix_, view);
+}
+
+// =====================================================================================================================
+void PickingDemo::AnimateMaterials(const BaseTimer & timer)
+{
+}
+
+// =====================================================================================================================
+void PickingDemo::UpdateObjectCBs(const BaseTimer & timer)
+{
+    using namespace FrameResource;
+
+    auto currObjCB = currentFrameRes_->m_objCb.get();
+    for (auto& e : allItems_)
+    {
+        if (e->numFramesDirty_ > 0)
+        {
+            XMMATRIX world = DirectX::XMLoadFloat4x4(&e->world_);
+            XMMATRIX texTransform = DirectX::XMLoadFloat4x4(&e->texTransform_);
+
+            ObjectConstants objConstants;
+            DirectX::XMStoreFloat4x4(&objConstants.m_world, XMMatrixTranspose(world));
+            DirectX::XMStoreFloat4x4(&objConstants.m_texTransform, XMMatrixTranspose(texTransform));
+
+            currObjCB->CopyData(e->objCbIndex_, objConstants);
+            e->numFramesDirty_--;
+        }
+    }
+}
+
+// =====================================================================================================================
+void PickingDemo::UpdateMaterialCBs(const BaseTimer & timer)
+{
+    using namespace FrameResource;
+
+    auto currMaterialCB = currentFrameRes_->m_matCb.get();
+    for (auto& e : materials_)
+    {
+        Material* pMat = e.second.get();
+        if (pMat->m_numFramesDirty > 0)
+        {
+            XMMATRIX matTransform = XMLoadFloat4x4(&pMat->m_matTransform);
+
+            MaterialConstants matConstants;
+            matConstants.diffuseAlbedo = pMat->m_diffuseAlbedo;
+            matConstants.fresnelR0 = pMat->m_fresnelR0;
+            matConstants.roughness = pMat->m_roughness;
+            XMStoreFloat4x4(&matConstants.matTransform, XMMatrixTranspose(matTransform));
+            currMaterialCB->CopyData(pMat->m_matCbIndex, matConstants);
+
+            pMat->m_numFramesDirty--;
+        }
+    }
+}
+
+// =====================================================================================================================
+void PickingDemo::UpdateMainPassCBs(const BaseTimer & timer)
+{
+    XMMATRIX view = XMLoadFloat4x4(&viewMatrix_);
+    XMMATRIX proj = XMLoadFloat4x4(&projMatrix_);
+
+    XMMATRIX viewProj    = XMMatrixMultiply(view, proj);
+    XMMATRIX invView     = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+    XMMATRIX invProj     = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+    XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+
+    XMStoreFloat4x4(&mainPassCB_.view, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&mainPassCB_.proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&mainPassCB_.viewProj, XMMatrixTranspose(viewProj));
+    XMStoreFloat4x4(&mainPassCB_.invView, XMMatrixTranspose(invView));
+    XMStoreFloat4x4(&mainPassCB_.invProj, XMMatrixTranspose(invProj));
+    XMStoreFloat4x4(&mainPassCB_.invViewProj, XMMatrixTranspose(invViewProj));
+
+    mainPassCB_.eyePosW = eyePos_;
+    mainPassCB_.renderTargetSize = XMFLOAT2(static_cast<float>(m_clientWidth), static_cast<float>(m_clientHeight));
+    mainPassCB_.invRenderTargetSize = XMFLOAT2(1.0f / m_clientWidth, 1.0f / m_clientHeight);
+
+    // frustum
+    mainPassCB_.nearZ = 1.0f;
+    mainPassCB_.farZ = 1000.0f;
+
+    // time
+    mainPassCB_.totalTime = timer.TotalTimeInSecs();
+    mainPassCB_.deltaTime = timer.DeltaTimeInSecs();
+
+    // lights
+    mainPassCB_.ambientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+    mainPassCB_.lights[0].direction = { 0.57735f, -0.57735f, 0.57735f };
+    mainPassCB_.lights[0].strength = { 0.6f, 0.6f, 0.6f };
+    mainPassCB_.lights[1].direction = { -0.57735f, -0.57735f, 0.57735f };
+    mainPassCB_.lights[1].strength = { 0.3f, 0.3f, 0.3f };
+    mainPassCB_.lights[2].direction = { 0.0f, -0.707f, -0.707f };
+    mainPassCB_.lights[2].strength = { 0.15f, 0.15f, 0.15f };
+
+    auto currPassCB = currentFrameRes_->m_passCb.get();
+    currPassCB->CopyData(0, mainPassCB_);
+}
+
+// =====================================================================================================================
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> PickingDemo::GetStaticSamplers()
+{
+    const CD3DX12_STATIC_SAMPLER_DESC pointWrap(0,
+                        D3D12_FILTER_MIN_MAG_MIP_POINT,
+                        D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+                        D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+                        D3D12_TEXTURE_ADDRESS_MODE_WRAP);
+    const CD3DX12_STATIC_SAMPLER_DESC pointClamp(1,
+                         D3D12_FILTER_MIN_MAG_MIP_POINT,
+                         D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+                         D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+                         D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
+
+    const CD3DX12_STATIC_SAMPLER_DESC linearWrap(2,
+                         D3D12_FILTER_MIN_MAG_MIP_LINEAR,
+                         D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+                         D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+                         D3D12_TEXTURE_ADDRESS_MODE_WRAP);
+    const CD3DX12_STATIC_SAMPLER_DESC linearClamp(3,
+                          D3D12_FILTER_MIN_MAG_MIP_LINEAR,
+                          D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+                          D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+                          D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
+
+    const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(4,
+                              D3D12_FILTER_ANISOTROPIC,
+                              D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+                              D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+                              D3D12_TEXTURE_ADDRESS_MODE_WRAP);
+    const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(5,
+                               D3D12_FILTER_ANISOTROPIC,
+                               D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+                               D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+                               D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
+
+    return { pointWrap, pointClamp, linearWrap, linearClamp, anisotropicWrap, anisotropicClamp };
+}
+
+// =====================================================================================================================
+// Write the win main func here
+int WINAPI WinMain(HINSTANCE hInstance,
+                   HINSTANCE hPrevInstance,
+                   PSTR      pCmdLine,
+                   int       nShowCmd)
+{
 #if defined(DEBUG) | defined(_DEBUG)
     _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 #endif
-    auto ret = 0;
+    auto retCode = 0;
     PickingDemo demoApp(hInstance);
-    if (demoApp.Initialize()) {
-        ret = demoApp.Run();
+
+    if (demoApp.Initialize() == true)
+    {
+        retCode = demoApp.Run();
     }
-    return ret;
+
+    return retCode;
 }
+
+
+
+/* Options for rendering multiple textured scenes:
+(lesser evil?)
+1. separate classes for each demo, with own resources in GPU mem, then switch to current app
+(time lag when uploading resources on app switch)
+2. upload all resources for all demos, then index into the resources for that which is visible
+(works well for small number of demoes, resource issues when # of demoes is large) - lesser evil!
+3. render all demoes in the same app, change viewport/ hide other views (bad, needless rendering)
+
+ */
