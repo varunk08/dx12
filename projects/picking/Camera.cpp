@@ -23,6 +23,8 @@ public:
     void Walk(float value);
     void Strafe(float value);
     void UpdateViewMatrix();
+    void LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp);
+    void LookAt(const XMFLOAT3& pos, const XMFLOAT3& target, const XMFLOAT3& up);
 
 private:
     DirectX::XMFLOAT3 m_position   = {0.0f, 0.0f, 0.0f};
@@ -149,5 +151,26 @@ void Camera::UpdateViewMatrix() {
         m_viewDirty = false;
     }
 }    
+
+void Camera::LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp)
+{
+    XMVECTOR L = XMVector3Normalize(XMVectorSubtract(target, pos));
+    XMVECTOR R = XMVector3Normalize(XMVector3Cross(worldUp, L));
+    XMVECTOR U = XMVector3Cross(L, R);
+    XMStoreFloat3(&m_position, pos);
+    XMStoreFloat3(&m_look, L);
+    XMStoreFloat3(&m_right, R);
+    XMStoreFloat3(&m_up, U);
+    m_viewDirty = true;
+}
+
+void Camera::LookAt(const XMFLOAT3& pos, const XMFLOAT3& target, const XMFLOAT3& up)
+{
+    XMVECTOR P = XMLoadFloat3(&pos);
+    XMVECTOR T = XMLoadFloat3(&target);
+    XMVECTOR U = XMLoadFloat3(&up);
+    LookAt(P, T, U);
+    m_viewDirty = true;
+}
 
 #endif // CAMERA_H

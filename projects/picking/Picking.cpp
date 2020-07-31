@@ -185,6 +185,10 @@ bool PickingDemo::Initialize()
     {
         ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
 
+        camera_.LookAt(XMFLOAT3(5.0f, 4.0f, -15.0f),
+            XMFLOAT3(0.0f, 1.0f, 0.0f),
+            XMFLOAT3(0.0f, 1.0f, 0.0f));
+
         LoadTextures();
         BuildRootSignature();
         BuildDescriptorHeaps();
