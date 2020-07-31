@@ -4,6 +4,7 @@
 #include "BaseApp.h"
 #include "FrameResource.h"
 #include "GeometryGenerator.h"
+#include "Camera.cpp"
 
 using namespace std;
 using Microsoft::WRL::ComPtr;
@@ -690,14 +691,13 @@ int WINAPI WinMain(HINSTANCE hInstance,
     return retCode;
 }
 
-
-
-/* Options for rendering multiple textured scenes:
-(lesser evil?)
-1. separate classes for each demo, with own resources in GPU mem, then switch to current app
-(time lag when uploading resources on app switch)
-2. upload all resources for all demos, then index into the resources for that which is visible
-(works well for small number of demoes, resource issues when # of demoes is large) - lesser evil!
-3. render all demoes in the same app, change viewport/ hide other views (bad, needless rendering)
-
- */
+// =====================================================================================================================
+/*
+TODO:
+- Create Camera class
+- screen position of click needs to be transformed to world space
+- intersection testing
+- draw highlight pipeline implementation
+- drawing of specific geometry which is highlighted
+*/
+// =====================================================================================================================
