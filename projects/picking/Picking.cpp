@@ -42,15 +42,8 @@ public:
     PickingDemo(HINSTANCE hInstance)
         :
         BaseApp(hInstance),
-        theta_(1.3f * XM_PI),
-        phi_(0.4f * XM_PI),
-        radius_(2.5f),
         currentFrameIndex_(0)
-    {
-        projMatrix_ = MathHelper::Identity4x4();
-        viewMatrix_ = MathHelper::Identity4x4();
-        eyePos_ = { 0.0f, 0.0f, 0.0f };
-    }
+    {}
 
     virtual void OnResize() override;
     virtual void Update(const BaseTimer& timer) override;
@@ -62,8 +55,6 @@ public:
     virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
 
     void OnKeyboardInput(const BaseTimer& timer);
-    void UpdateCamera(const BaseTimer& timer);
-    void AnimateMaterials(const BaseTimer& timer);
     void UpdateObjectCBs(const BaseTimer& timer);
     void UpdateMaterialCBs(const BaseTimer& timer);
     void UpdateMainPassCBs(const BaseTimer& timer);
@@ -80,7 +71,7 @@ public:
     void BuildPipelines();
 
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& items);
-
+    void Pick(int sx, int sy);
 private:
     ComPtr<ID3D12RootSignature> rootSignature_ = nullptr;
     ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_ = nullptr;
@@ -98,16 +89,10 @@ private:
     FrameResource::Resources* currentFrameRes_ = nullptr;
     FrameResource::PassConstants mainPassCB_;
 
-    XMFLOAT4X4 projMatrix_;
-    XMFLOAT4X4 viewMatrix_;
-    XMFLOAT3 eyePos_;
-
-    float theta_;
-    float phi_;
-    float radius_;
     POINT lastMousePos_;
 
     unsigned int currentFrameIndex_;
+    Camera camera_;
 };
 
 // =====================================================================================================================
@@ -115,15 +100,13 @@ void PickingDemo::OnResize()
 {
     BaseApp::OnResize();
 
-    XMMATRIX proj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
-    XMStoreFloat4x4(&projMatrix_, proj);
+    camera_.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 }
 
 // =====================================================================================================================
 void PickingDemo::Update(const BaseTimer& timer)
 {
     OnKeyboardInput(timer);
-    UpdateCamera(timer);
 
     currentFrameIndex_ = (currentFrameIndex_ + 1) % NumFrameResources;
     currentFrameRes_ = frameResources_[currentFrameIndex_].get();
@@ -136,11 +119,9 @@ void PickingDemo::Update(const BaseTimer& timer)
         CloseHandle(eventHandle);
     }
 
-    AnimateMaterials(timer);
     UpdateObjectCBs(timer);
     UpdateMaterialCBs(timer);
     UpdateMainPassCBs(timer);
-
 }
 
 // ====================================================================================================================
@@ -476,10 +457,15 @@ void PickingDemo::DrawRenderItems(ID3D12GraphicsCommandList * cmdList, const std
 // =====================================================================================================================
 void PickingDemo::OnMouseDown(WPARAM btnState, int x, int y)
 {
-    lastMousePos_.x = x;
-    lastMousePos_.y = y;
-
-    SetCapture(mhMainWnd);
+    if((btnState & MK_LBUTTON) != 0) {
+        lastMousePos_.x = x;
+        lastMousePos_.y = y;    
+        SetCapture(mhMainWnd);
+    }
+    else if((btnState & MK_RBUTTON) != 0)
+    {
+        Pick(x, y);
+    }
 }
 
 // =====================================================================================================================
@@ -496,18 +482,8 @@ void PickingDemo::OnMouseMove(WPARAM btnState, int x, int y)
       float dx = XMConvertToRadians(0.25f * static_cast<float>(x - lastMousePos_.x));
       float dy = XMConvertToRadians(0.25f * static_cast<float>(y - lastMousePos_.y));
 
-      theta_ += dx;
-      phi_   += dy;
-      phi_ = MathHelper::Clamp(phi_, 0.1f, MathHelper::Pi - 0.1f);
-    }
-    else if ((btnState & MK_RBUTTON) != 0)
-    {
-      float dx = 0.05f * static_cast<float>(x - lastMousePos_.x);
-      float dy = 0.05f * static_cast<float>(y - lastMousePos_.y);
-
-      radius_ += (dx - dy);
-
-      radius_ = MathHelper::Clamp(radius_, 5.0f, 150.0f);
+      camera_.Pitch(dy);
+      camera_.RotateY(dx);
     }
 
     lastMousePos_.x = x;
@@ -517,27 +493,21 @@ void PickingDemo::OnMouseMove(WPARAM btnState, int x, int y)
 // =====================================================================================================================
 void PickingDemo::OnKeyboardInput(const BaseTimer & timer)
 {
-}
+    const float dt = timer.DeltaTimeInSecs();
 
-// =====================================================================================================================
-void PickingDemo::UpdateCamera(const BaseTimer & timer)
-{
-    // Convert spherical to Cartesian Coordinates
-    eyePos_.x = radius_ * sinf(phi_) * cosf(theta_);
-    eyePos_.y = radius_ * cosf(phi_);
-    eyePos_.z = radius_ * sinf(phi_) * sinf(theta_);
+    if(GetAsyncKeyState('W') & 0x8000)
+        camera_.Walk(10.0f*dt);
 
-    XMVECTOR pos = XMVectorSet(eyePos_.x, eyePos_.y, eyePos_.z, 1.0f);
-    XMVECTOR target = XMVectorZero();
-    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    if(GetAsyncKeyState('S') & 0x8000)
+        camera_.Walk(-10.0f*dt);
 
-    XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
-    XMStoreFloat4x4(&viewMatrix_, view);
-}
+    if(GetAsyncKeyState('A') & 0x8000)
+        camera_.Strafe(-10.0f*dt);
 
-// =====================================================================================================================
-void PickingDemo::AnimateMaterials(const BaseTimer & timer)
-{
+    if(GetAsyncKeyState('D') & 0x8000)
+        camera_.Strafe(10.0f*dt);
+
+    camera_.UpdateViewMatrix();
 }
 
 // =====================================================================================================================
@@ -591,8 +561,8 @@ void PickingDemo::UpdateMaterialCBs(const BaseTimer & timer)
 // =====================================================================================================================
 void PickingDemo::UpdateMainPassCBs(const BaseTimer & timer)
 {
-    XMMATRIX view = XMLoadFloat4x4(&viewMatrix_);
-    XMMATRIX proj = XMLoadFloat4x4(&projMatrix_);
+    XMMATRIX view = camera_.GetView();
+    XMMATRIX proj = camera_.GetProj();
 
     XMMATRIX viewProj    = XMMatrixMultiply(view, proj);
     XMMATRIX invView     = XMMatrixInverse(&XMMatrixDeterminant(view), view);
@@ -606,7 +576,7 @@ void PickingDemo::UpdateMainPassCBs(const BaseTimer & timer)
     XMStoreFloat4x4(&mainPassCB_.invProj, XMMatrixTranspose(invProj));
     XMStoreFloat4x4(&mainPassCB_.invViewProj, XMMatrixTranspose(invViewProj));
 
-    mainPassCB_.eyePosW = eyePos_;
+    mainPassCB_.eyePosW = camera_.GetPosition3f();
     mainPassCB_.renderTargetSize = XMFLOAT2(static_cast<float>(m_clientWidth), static_cast<float>(m_clientHeight));
     mainPassCB_.invRenderTargetSize = XMFLOAT2(1.0f / m_clientWidth, 1.0f / m_clientHeight);
 
@@ -629,6 +599,12 @@ void PickingDemo::UpdateMainPassCBs(const BaseTimer & timer)
 
     auto currPassCB = currentFrameRes_->m_passCb.get();
     currPassCB->CopyData(0, mainPassCB_);
+}
+
+// =====================================================================================================================
+void PickingDemo::Pick(int sx, int sy)
+{
+
 }
 
 // =====================================================================================================================
