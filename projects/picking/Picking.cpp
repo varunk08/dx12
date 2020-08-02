@@ -73,9 +73,10 @@ public:
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& items);
     void Pick(int sx, int sy);
 private:
-    ComPtr<ID3D12RootSignature> rootSignature_ = nullptr;
-    ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_ = nullptr;
-    ComPtr<ID3D12PipelineState> opaqueGfxPipe_ = nullptr;
+    ComPtr<ID3D12RootSignature> rootSignature_                                  = nullptr;
+    ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_                             = nullptr;
+    ComPtr<ID3D12PipelineState> opaqueGfxPipe_                                  = nullptr;
+    ComPtr<ID3D12PipelineState> highlightGfxPipe_                               = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<Texture>> textures_;
     std::unordered_map<std::string, ComPtr<ID3DBlob>> shaders_;
@@ -86,7 +87,7 @@ private:
     std::vector<std::unique_ptr<RenderItem>> allItems_;
     std::vector<RenderItem*> opaqueItems_;
     std::vector<std::unique_ptr<FrameResource::Resources>> frameResources_;
-    FrameResource::Resources* currentFrameRes_ = nullptr;
+    FrameResource::Resources* currentFrameRes_                                  = nullptr;
     FrameResource::PassConstants mainPassCB_;
 
     POINT lastMousePos_;
@@ -425,6 +426,23 @@ void PickingDemo::BuildPipelines()
     opaquePipeDesc.SampleDesc.Quality = m_4xMsaaEn ? m_4xMsaaQuality - 1 : 0;
     opaquePipeDesc.DSVFormat = m_depthStencilFormat;
     ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&opaquePipeDesc, IID_PPV_ARGS(&opaqueGfxPipe_)));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC hiLightDesc                          = opaquePipeDesc;
+    hiLightDesc.DepthStencilState.DepthFunc                                 = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+
+    D3D12_RENDER_TARGET_BLEND_DESC transparencyBlendDesc;
+    transparencyBlendDesc.BlendEnable                                       = true;
+    transparencyBlendDesc.LogicOpEnable                                     = false;
+    transparencyBlendDesc.SrcBlend                                          = D3D12_BLEND_SRC_ALPHA;
+    transparencyBlendDesc.DestBlend                                         = D3D12_BLEND_INV_SRC_ALPHA;
+    transparencyBlendDesc.BlendOp                                           = D3D12_BLEND_OP_ADD;
+    transparencyBlendDesc.SrcBlendAlpha                                     = D3D12_BLEND_ONE;
+    transparencyBlendDesc.DestBlendAlpha                                    = D3D12_BLEND_ZERO;
+    transparencyBlendDesc.BlendOpAlpha                                      = D3D12_BLEND_OP_ADD;
+    transparencyBlendDesc.LogicOp                                           = D3D12_LOGIC_OP_NOOP;
+    transparencyBlendDesc.RenderTargetWriteMask                             = D3D12_COLOR_WRITE_ENABLE_ALL;
+    hiLightDesc.BlendState.RenderTarget[0]                                  = transparencyBlendDesc;
+    ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&hiLightDesc, IID_PPV_ARGS(&highlightGfxPipe_)));
 }
 
 // =====================================================================================================================
