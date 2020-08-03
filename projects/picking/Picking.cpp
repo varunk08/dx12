@@ -678,13 +678,12 @@ void PickingDemo::Pick(int sx, int sy)
         XMMATRIX toLocal  = XMMatrixMultiply(invView, invWorld);
         rayOrigin         = XMVector3TransformCoord(rayOrigin, toLocal);
         rayDir            = XMVector3TransformNormal(rayDir, toLocal);
-
         rayDir            = XMVector3Normalize(rayDir);
 
         float tmin        = 0.0f;
-        const Vertex* vertices = (Vertex*)geo->vertexBufferCPU->GetBufferPointer();
-        auto indices = (std::uint16_t*)geo->indexBufferCPU->GetBufferPointer();
-        UINT triCount = ri->indexCount_ / 3;
+        const FrameResource::Vertex* vertices = (FrameResource::Vertex*)geo->vertexBufferCPU->GetBufferPointer();
+        auto indices           = (std::uint16_t*)geo->indexBufferCPU->GetBufferPointer();
+        UINT triCount          = ri->indexCount_ / 3;
 
         tmin = MathHelper::Infinity;
         for (UINT i = 0; i < triCount; ++i) {
@@ -692,14 +691,14 @@ void PickingDemo::Pick(int sx, int sy)
             UINT i1 = indices[i * 3 + 1];
             UINT i2 = indices[i * 3 + 2];
 
-            XMVECTOR v0 = DirectX::XMLoadFloat3(&vertices[i0].m_position);
-            XMVECTOR v1 = DirectX::XMLoadFloat3(&vertices[i1].m_position);
-            XMVECTOR v2 = DirectX::XMLoadFloat3(&vertices[i2].m_position);
+            XMVECTOR v0 = DirectX::XMLoadFloat3(&vertices[i0].pos);
+            XMVECTOR v1 = DirectX::XMLoadFloat3(&vertices[i1].pos);
+            XMVECTOR v2 = DirectX::XMLoadFloat3(&vertices[i2].pos);
 
             float t = 0.0f;
             if (TriangleTests::Intersects(rayOrigin, rayDir, v0, v1, v2, t)) {
                 if (t < tmin) {
-                    tmin = t;
+                    tmin                                     = t;
                     UINT pickedTriangle                      = i;
                     pHighLightItem_->visible_                = true;
                     pHighLightItem_->indexCount_             = 3;
