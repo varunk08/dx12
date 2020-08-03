@@ -25,6 +25,7 @@ public:
     void UpdateViewMatrix();
     void LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp);
     void LookAt(const XMFLOAT3& pos, const XMFLOAT3& target, const XMFLOAT3& up);
+    XMFLOAT4X4 GetProj4x4f();
 
 private:
     DirectX::XMFLOAT3 m_position   = {0.0f, 0.0f, 0.0f};
@@ -171,6 +172,11 @@ void Camera::LookAt(const XMFLOAT3& pos, const XMFLOAT3& target, const XMFLOAT3&
     XMVECTOR U = XMLoadFloat3(&up);
     LookAt(P, T, U);
     m_viewDirty = true;
+}
+
+XMFLOAT4X4 Camera::GetProj4x4f()
+{
+    return m_proj;
 }
 
 #endif // CAMERA_H

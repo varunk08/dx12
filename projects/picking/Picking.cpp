@@ -21,18 +21,18 @@ class RenderItem
 public:
     RenderItem() = default;
 
-    XMFLOAT4X4 world_ = MathHelper::Identity4x4();
-    XMFLOAT4X4 texTransform_ = MathHelper::Identity4x4();
-
-    int numFramesDirty_ = NumFrameResources;
-    UINT objCbIndex_ = -1;
-    Material* mat_ = nullptr;
-    MeshGeometry* geo_ = nullptr;
-
+    bool visible_                           = true;
+    BoundingBox bounds_;
+    XMFLOAT4X4 world_                       = MathHelper::Identity4x4();
+    XMFLOAT4X4 texTransform_                = MathHelper::Identity4x4();
+    int numFramesDirty_                     = NumFrameResources;
+    UINT objCbIndex_                        = -1;
+    Material* mat_                          = nullptr;
+    MeshGeometry* geo_                      = nullptr;
     D3D12_PRIMITIVE_TOPOLOGY primitiveType_ = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    UINT indexCount_ = 0;
-    UINT startIndexLocation_ = 0;
-    int baseVertexLocation_ = 0;
+    UINT indexCount_                        = 0;
+    UINT startIndexLocation_                = 0;
+    int baseVertexLocation_                 = 0;
 };
 
 // =====================================================================================================================
@@ -73,27 +73,26 @@ public:
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& items);
     void Pick(int sx, int sy);
 private:
-    ComPtr<ID3D12RootSignature> rootSignature_                                  = nullptr;
-    ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_                             = nullptr;
-    ComPtr<ID3D12PipelineState> opaqueGfxPipe_                                  = nullptr;
-    ComPtr<ID3D12PipelineState> highlightGfxPipe_                               = nullptr;
+    ComPtr<ID3D12RootSignature>                                    rootSignature_     = nullptr;
+    ComPtr<ID3D12DescriptorHeap>                                   srvDescriptorHeap_ = nullptr;
+    ComPtr<ID3D12PipelineState>                                    opaqueGfxPipe_     = nullptr;
+    ComPtr<ID3D12PipelineState>                                    highlightGfxPipe_  = nullptr;
 
-    std::unordered_map<std::string, std::unique_ptr<Texture>> textures_;
-    std::unordered_map<std::string, ComPtr<ID3DBlob>> shaders_;
+    std::unordered_map<std::string, std::unique_ptr<Texture>>      textures_;
+    std::unordered_map<std::string, ComPtr<ID3DBlob>>              shaders_;
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> geometries_;
-    std::unordered_map<std::string, std::unique_ptr<Material>> materials_;
+    std::unordered_map<std::string, std::unique_ptr<Material>>     materials_;
+    std::vector<D3D12_INPUT_ELEMENT_DESC>                          inputLayout_;
+    std::vector<std::unique_ptr<RenderItem>>                       allItems_;
+    std::vector<RenderItem*>                                       opaqueItems_;
+    RenderItem*                                                    pHighLightItem_ = nullptr;
+    std::vector<std::unique_ptr<FrameResource::Resources>>         frameResources_;
+    FrameResource::Resources*                                      currentFrameRes_ = nullptr;
+    FrameResource::PassConstants                                   mainPassCB_;
 
-    std::vector<D3D12_INPUT_ELEMENT_DESC> inputLayout_;
-    std::vector<std::unique_ptr<RenderItem>> allItems_;
-    std::vector<RenderItem*> opaqueItems_;
-    std::vector<std::unique_ptr<FrameResource::Resources>> frameResources_;
-    FrameResource::Resources* currentFrameRes_                                  = nullptr;
-    FrameResource::PassConstants mainPassCB_;
-
-    POINT lastMousePos_;
-
+    POINT        lastMousePos_;
     unsigned int currentFrameIndex_;
-    Camera camera_;
+    Camera       camera_;
 };
 
 // =====================================================================================================================
@@ -158,6 +157,9 @@ void PickingDemo::Draw(const BaseTimer& timer)
     m_commandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
     DrawRenderItems(m_commandList.Get(), opaqueItems_);
+
+    m_commandList->SetPipelineState(highlightGfxPipe_.Get());
+    DrawRenderItems(m_commandList.Get(), { pHighLightItem_ });
 
     m_commandList->ResourceBarrier(1,
                    &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -312,7 +314,7 @@ void PickingDemo::BuildShadersAndInputLayout()
 void PickingDemo::BuildShapeGeometry()
 {
     GeometryGenerator geoGen;
-    MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
+    MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 1);
 
     SubmeshGeometry boxSubmesh;
     boxSubmesh.indexCount = static_cast<UINT>(box.m_indices32.size());
@@ -375,25 +377,44 @@ void PickingDemo::BuildMaterials()
     woodCrate->m_roughness = 0.2f;
 
     materials_["woodCrate"] = std::move(woodCrate);
+
+    auto highlight0                   = std::make_unique<Material>();
+    highlight0->m_name                = "highlight0";
+    highlight0->m_matCbIndex          = 1;
+    highlight0->m_diffuseSrvHeapIndex = 0;
+    highlight0->m_diffuseAlbedo       = XMFLOAT4(1.0f, 1.0f, 0.0f, 0.6f);
+    highlight0->m_fresnelR0           = XMFLOAT3(0.06f, 0.06f, 0.06f);
+    highlight0->m_roughness           = 0.0f;
+
+    materials_["highlight"] = std::move(highlight0);
 }
 
 // ====================================================================================================================
 void PickingDemo::BuildRenderItems()
 {
-    auto boxItem = std::make_unique<RenderItem>();
-    boxItem->objCbIndex_ = 0;
-    boxItem->mat_ = materials_["woodCrate"].get();
-    boxItem->geo_ = geometries_["boxGeo"].get();
-    boxItem->primitiveType_ = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    boxItem->indexCount_ = boxItem->geo_->drawArgs["box"].indexCount;
+    auto boxItem                 = std::make_unique<RenderItem>();
+    boxItem->objCbIndex_         = 0;
+    boxItem->mat_                = materials_["woodCrate"].get();
+    boxItem->geo_                = geometries_["boxGeo"].get();
+    boxItem->primitiveType_      = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    boxItem->indexCount_         = boxItem->geo_->drawArgs["box"].indexCount;
     boxItem->startIndexLocation_ = boxItem->geo_->drawArgs["box"].startIndexLocation;
     boxItem->baseVertexLocation_ = boxItem->geo_->drawArgs["box"].baseVertexLocation;
-    allItems_.push_back(std::move(boxItem));
+    opaqueItems_.push_back(boxItem.get());
 
-    for (auto& e : allItems_)
-    {
-        opaqueItems_.push_back(e.get());
-    }
+    auto highLightBoxItem                 = std::make_unique<RenderItem>();
+    highLightBoxItem->objCbIndex_         = 0;
+    highLightBoxItem->mat_                = materials_["highlight"].get();
+    highLightBoxItem->geo_                = geometries_["boxGeo"].get();
+    highLightBoxItem->primitiveType_      = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    highLightBoxItem->indexCount_         = highLightBoxItem->geo_->drawArgs["box"].indexCount;
+    highLightBoxItem->startIndexLocation_ = highLightBoxItem->geo_->drawArgs["box"].startIndexLocation;
+    highLightBoxItem->baseVertexLocation_ = highLightBoxItem->geo_->drawArgs["box"].baseVertexLocation;
+    highLightBoxItem->visible_            = false;
+    pHighLightItem_                       = highLightBoxItem.get();
+
+    allItems_.push_back(std::move(boxItem));
+    allItems_.push_back(std::move(highLightBoxItem));
 }
 
 // =====================================================================================================================
@@ -407,6 +428,8 @@ void PickingDemo::BuildFrameResources()
 }
 
 // =====================================================================================================================
+// Creates two pipeline states - one for regular drawaing, the second with blending which will be used for drawing
+// highlighted geometry.
 void PickingDemo::BuildPipelines()
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePipeDesc = {};
@@ -457,6 +480,10 @@ void PickingDemo::DrawRenderItems(ID3D12GraphicsCommandList * cmdList, const std
     for (size_t i = 0; i < items.size(); ++i)
     {
         auto ri = items[i];
+
+        if (ri->visible_ == false) {
+            continue;
+        }
 
         cmdList->IASetVertexBuffers(0, 1, &ri->geo_->VertexBufferView());
         cmdList->IASetIndexBuffer(&ri->geo_->IndexBufferView());
@@ -624,9 +651,66 @@ void PickingDemo::UpdateMainPassCBs(const BaseTimer & timer)
 }
 
 // =====================================================================================================================
+// Picks a triangle to highlight from the meshes using screen coordinates.
 void PickingDemo::Pick(int sx, int sy)
 {
+    XMFLOAT4X4 P       = camera_.GetProj4x4f();
+    // Compute picking ray in view space.
+    float vx           = (+2.0f * sx / m_clientWidth - 1.0f) / P(0, 0);
+    float vy           = (-2.0f * sy / m_clientHeight + 1.0f) / P(1, 1);
+    // Ray definition in view space.
+    XMVECTOR rayOrigin = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+    XMVECTOR rayDir    = XMVectorSet(vx, vy, 1.0f, 0.0f);
+    XMMATRIX V         = camera_.GetView();
+    XMMATRIX invView   = XMMatrixInverse(&XMMatrixDeterminant(V), V);
 
+    pHighLightItem_->visible_ = false;
+
+    for (auto ri : opaqueItems_) {
+        auto geo = ri->geo_;
+
+        if (ri->visible_ == false) {
+            continue;
+        }
+        
+        XMMATRIX W        = DirectX::XMLoadFloat4x4(&ri->world_);
+        XMMATRIX invWorld = XMMatrixInverse(&XMMatrixDeterminant(W), W);
+        XMMATRIX toLocal  = XMMatrixMultiply(invView, invWorld);
+        rayOrigin         = XMVector3TransformCoord(rayOrigin, toLocal);
+        rayDir            = XMVector3TransformNormal(rayDir, toLocal);
+
+        rayDir            = XMVector3Normalize(rayDir);
+
+        float tmin        = 0.0f;
+        const Vertex* vertices = (Vertex*)geo->vertexBufferCPU->GetBufferPointer();
+        auto indices = (std::uint16_t*)geo->indexBufferCPU->GetBufferPointer();
+        UINT triCount = ri->indexCount_ / 3;
+
+        tmin = MathHelper::Infinity;
+        for (UINT i = 0; i < triCount; ++i) {
+            UINT i0 = indices[i * 3 + 0];
+            UINT i1 = indices[i * 3 + 1];
+            UINT i2 = indices[i * 3 + 2];
+
+            XMVECTOR v0 = DirectX::XMLoadFloat3(&vertices[i0].m_position);
+            XMVECTOR v1 = DirectX::XMLoadFloat3(&vertices[i1].m_position);
+            XMVECTOR v2 = DirectX::XMLoadFloat3(&vertices[i2].m_position);
+
+            float t = 0.0f;
+            if (TriangleTests::Intersects(rayOrigin, rayDir, v0, v1, v2, t)) {
+                if (t < tmin) {
+                    tmin = t;
+                    UINT pickedTriangle                      = i;
+                    pHighLightItem_->visible_                = true;
+                    pHighLightItem_->indexCount_             = 3;
+                    pHighLightItem_->baseVertexLocation_     = 0;
+                    pHighLightItem_->world_                  = ri->world_;
+                    pHighLightItem_->numFramesDirty_         = NumFrameResources;
+                    pHighLightItem_->startIndexLocation_     = 3 * pickedTriangle;
+                }
+            }
+        }
+    }
 }
 
 // =====================================================================================================================

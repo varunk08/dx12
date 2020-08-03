@@ -1,5 +1,6 @@
 set(SOURCE Picking.cpp
            FrameResource.cpp)
+set(INCLUDE_PICKING Camera.cpp)
 set(COMMON ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 set(COMMON_SRC ${COMMON}/BaseApp.cpp
                ${COMMON}/BaseTimer.cpp
