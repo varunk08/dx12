@@ -338,8 +338,8 @@ protected:
         m_d3dDevice->CreateConstantBufferView(&cbvDesc, mpCbvHeap->GetCPUDescriptorHandleForHeapStart());
     }
     void BuildShaders() {
-        mShaders["simpleVS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\cube_mapping\\shaders\\simpleRender.hlsl", nullptr, "SimpleVS", "vs_5_1");
-        mShaders["simplePS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\cube_mapping\\shaders\\simpleRender.hlsl", nullptr, "SimplePS", "ps_5_1");
+        mShaders["simpleVS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\first_person_cam\\shaders\\simpleRender.hlsl", nullptr, "SimpleVS", "vs_5_1");
+        mShaders["simplePS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\first_person_cam\\shaders\\simpleRender.hlsl", nullptr, "SimplePS", "ps_5_1");
         mInputLayout = {
             {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
             {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}

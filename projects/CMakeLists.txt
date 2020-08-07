@@ -33,6 +33,7 @@ set (PROJECTS
      first_person_cam
      dynamic_indexing
      instancing_culling
-     picking)
+     picking
+     cube_mapping)
 
 buildAllProjects()
