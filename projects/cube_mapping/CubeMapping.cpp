@@ -232,13 +232,15 @@ protected:
         m_commandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSlateGray, 0, nullptr);
         m_commandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
         m_commandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-        ID3D12DescriptorHeap* descriptorHeaps[] = { mpCbvHeap.Get() };
-        m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-        m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
         m_commandList->IASetVertexBuffers(0, 1, &mGeometries["grid"]->VertexBufferView());
         m_commandList->IASetIndexBuffer(&mGeometries["grid"]->IndexBufferView());
         m_commandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        ID3D12DescriptorHeap* descriptorHeaps[] = { mpCbvHeap.Get(), mpSrvHeap.Get() };
+        m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+        m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
         m_commandList->SetGraphicsRootDescriptorTable(0, mpCbvHeap->GetGPUDescriptorHandleForHeapStart());
+        m_commandList->SetGraphicsRootDescriptorTable(1, mpSrvHeap->GetGPUDescriptorHandleForHeapStart());
         m_commandList->DrawIndexedInstanced(mGeometries["grid"]->drawArgs["grid"].indexCount, 1, 0, 0, 0);
         m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
         ThrowIfFailed(m_commandList->Close());
@@ -407,11 +409,22 @@ protected:
         srvHeapDesc.NumDescriptors             = 1;
         srvHeapDesc.Type                       = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         srvHeapDesc.Flags                      = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mpSrvHeapDesc)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mpSrvHeap)));
+        
+        CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mpSrvHeap->GetCPUDescriptorHandleForHeapStart());
+        auto cubeMapRes = mCubeMapTex->resource_;
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Shader4ComponentMapping         = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Format                          = cubeMapRes->GetDesc().Format;
+        srvDesc.ViewDimension                   = D3D12_SRV_DIMENSION_TEXTURECUBE;
+        srvDesc.TextureCube.MostDetailedMip     = 0;
+        srvDesc.TextureCube.MipLevels           = cubeMapRes->GetDesc().MipLevels;
+        srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
+        m_d3dDevice->CreateShaderResourceView(cubeMapRes.Get(), &srvDesc, hDescriptor);
     }
     void BuildShaders() {
-        mShaders["simpleVS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\first_person_cam\\shaders\\simpleRender.hlsl", nullptr, "SimpleVS", "vs_5_1");
-        mShaders["simplePS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\first_person_cam\\shaders\\simpleRender.hlsl", nullptr, "SimplePS", "ps_5_1");
+        mShaders["simpleVS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\cube_mapping\\shaders\\simpleRender.hlsl", nullptr, "SimpleVS", "vs_5_1");
+        mShaders["simplePS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\cube_mapping\\shaders\\simpleRender.hlsl", nullptr, "SimplePS", "ps_5_1");
         mInputLayout = {
             {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
             {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
@@ -457,7 +470,7 @@ private:
     unordered_map<string, ComPtr<ID3DBlob>>         mShaders;
     vector<D3D12_INPUT_ELEMENT_DESC>                mInputLayout;
     ComPtr<ID3D12DescriptorHeap>                    mpCbvHeap = nullptr;
-    ComPtr<ID3D12DescriptorHeap>                    mpSrvHeapDesc = nullptr;
+    ComPtr<ID3D12DescriptorHeap>                    mpSrvHeap = nullptr;
     unique_ptr<UploadBuffer<SceneConstants>>        mSceneConstants = nullptr;
     ComPtr<ID3D12RootSignature>                     mRootSignature = nullptr;
     ComPtr<ID3D12PipelineState>                     mSimplePipeline = nullptr;
