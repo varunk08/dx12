@@ -1,17 +1,3 @@
-/*
-Create a first person camera demo with a basic scene
-- create and render scene
-    - create grid geometry
-    - write simple vs/ ps
-    - buid pipelines
-    - build descriptor heaps and shader views
-    - write draw commands
-    -
-- implement first person camera
-    - load textures
-    - write shader to apply texture to grid
-
-*/
 #include <unordered_map>
 #include <string>
 #include <memory>
@@ -155,13 +141,13 @@ private:
 };
 
 // ======================================================================
-class FpsCamDemo : public BaseApp
+class CubeMapDemo : public BaseApp
 {
 public:
-    FpsCamDemo(HINSTANCE hInst)
+    CubeMapDemo(HINSTANCE hInst)
     : BaseApp(hInst){
     }
-    ~FpsCamDemo() {
+    ~CubeMapDemo() {
         if (m_d3dDevice != nullptr) {
             FlushCommandQueue();
         }
@@ -172,6 +158,7 @@ public:
             ThrowIfFailed(m_commandList->Reset(m_directCmdListAlloc.Get(), nullptr));
             m_cbvSrvUavDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
             mCamera.SetPosition(0.0f, 2.0f, -15.0f);
+            LoadTextures();
             BuildGeometry();
             BuildDescriptorsAndViews();
             BuildShaders();
@@ -189,7 +176,19 @@ public:
     }
 
 protected:
-    void LoadTextures();
+    void LoadTextures() {
+        std::wstring cubeMapImgFilename = L"..\\..\\..\\projects\\Textures\\sunsetCube1024.dds";
+        auto texMap       = std::make_unique<Texture>();
+        texMap->name_     = "cubeMap";
+        texMap->filename_ = cubeMapImgFilename;
+        ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_d3dDevice.Get(),
+                                                          m_commandList.Get(),
+                                                          texMap->filename_.c_str(),
+                                                          texMap->resource_,
+                                                          texMap->uploadHeap_));
+        mCubeMapTex = std::move(texMap);
+    }
+
     void OnKeyboardInput(const BaseTimer& gt) {
         const float dt = gt.DeltaTimeInSecs();
         if (GetAsyncKeyState('W') & 0x8000) {
@@ -308,12 +307,77 @@ protected:
         HRESULT hr = m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mSimplePipeline));
         ThrowIfFailed(hr);
     }
+    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers()
+    {
+        // Applications usually only need a handful of samplers.  So just define them all up front
+        // and keep them available as part of the root signature.  
+
+        const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
+            0, // shaderRegister
+            D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+            D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+            D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+            D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+
+        const CD3DX12_STATIC_SAMPLER_DESC pointClamp(
+            1, // shaderRegister
+            D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+            D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+            D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+            D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+
+        const CD3DX12_STATIC_SAMPLER_DESC linearWrap(
+            2, // shaderRegister
+            D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+            D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+            D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+            D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+
+        const CD3DX12_STATIC_SAMPLER_DESC linearClamp(
+            3, // shaderRegister
+            D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+            D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+            D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+            D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+
+        const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(
+            4, // shaderRegister
+            D3D12_FILTER_ANISOTROPIC, // filter
+            D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+            D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+            D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressW
+            0.0f,                             // mipLODBias
+            8);                               // maxAnisotropy
+
+        const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(
+            5, // shaderRegister
+            D3D12_FILTER_ANISOTROPIC, // filter
+            D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+            D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+            D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressW
+            0.0f,                              // mipLODBias
+            8);                                // maxAnisotropy
+
+        return {
+            pointWrap, pointClamp,
+            linearWrap, linearClamp,
+            anisotropicWrap, anisotropicClamp };
+    }
     void BuildRootSignature() {
-        CD3DX12_ROOT_PARAMETER slotRootParams[1];
+     
         CD3DX12_DESCRIPTOR_RANGE cbvTable = {};
         cbvTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
+        
+        CD3DX12_DESCRIPTOR_RANGE texTable = {};
+        texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+
+        // Param 0 is for CBV and Param 1 is for the cube map texture SRV.
+        CD3DX12_ROOT_PARAMETER slotRootParams[2];
         slotRootParams[0].InitAsDescriptorTable(1, &cbvTable);
-        CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(1, slotRootParams, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+        slotRootParams[1].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
+
+        auto staticSamplers = GetStaticSamplers();
+        CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(2, slotRootParams, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
         ComPtr<ID3DBlob> serializedRootSig = nullptr;
         ComPtr<ID3DBlob> errorBlob = nullptr;
         HRESULT hr = D3D12SerializeRootSignature(&rootSignDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
@@ -330,12 +394,20 @@ protected:
         cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&mpCbvHeap)));
+
         mSceneConstants = make_unique<UploadBuffer<SceneConstants>>(m_d3dDevice.Get(), 1, true);
         UINT sceneConstBytes = BaseUtil::CalcConstantBufferByteSize(sizeof(SceneConstants));
         D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = { };
         cbvDesc.BufferLocation = mSceneConstants->Resource()->GetGPUVirtualAddress();
         cbvDesc.SizeInBytes = BaseUtil::CalcConstantBufferByteSize(sizeof(SceneConstants));
         m_d3dDevice->CreateConstantBufferView(&cbvDesc, mpCbvHeap->GetCPUDescriptorHandleForHeapStart());
+
+        // Create a heap descriptor for the cube map texture SRV.
+        D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+        srvHeapDesc.NumDescriptors             = 1;
+        srvHeapDesc.Type                       = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        srvHeapDesc.Flags                      = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mpSrvHeapDesc)));
     }
     void BuildShaders() {
         mShaders["simpleVS"] = BaseUtil::CompileShader(L"..\\..\\..\\projects\\first_person_cam\\shaders\\simpleRender.hlsl", nullptr, "SimpleVS", "vs_5_1");
@@ -385,9 +457,11 @@ private:
     unordered_map<string, ComPtr<ID3DBlob>>         mShaders;
     vector<D3D12_INPUT_ELEMENT_DESC>                mInputLayout;
     ComPtr<ID3D12DescriptorHeap>                    mpCbvHeap = nullptr;
+    ComPtr<ID3D12DescriptorHeap>                    mpSrvHeapDesc = nullptr;
     unique_ptr<UploadBuffer<SceneConstants>>        mSceneConstants = nullptr;
     ComPtr<ID3D12RootSignature>                     mRootSignature = nullptr;
     ComPtr<ID3D12PipelineState>                     mSimplePipeline = nullptr;
+    std::unique_ptr<Texture>                        mCubeMapTex;
     float mRadius = 5.0f;
     float mPhi = XM_PIDIV4;
     float mTheta = 2.0f * XM_PI;
@@ -403,7 +477,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
     _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 #endif
     auto ret = 0;
-    FpsCamDemo demoApp(hInstance);
+    CubeMapDemo demoApp(hInstance);
     if (demoApp.Initialize()) {
         ret = demoApp.Run();
     }

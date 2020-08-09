@@ -1,17 +1,3 @@
-/*
-Create a first person camera demo with a basic scene
-- create and render scene
-    - create grid geometry
-    - write simple vs/ ps
-    - buid pipelines
-    - build descriptor heaps and shader views
-    - write draw commands
-    -
-- implement first person camera
-    - load textures
-    - write shader to apply texture to grid
-
-*/
 #include <unordered_map>
 #include <string>
 #include <memory>
