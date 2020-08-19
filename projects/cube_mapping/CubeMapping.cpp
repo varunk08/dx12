@@ -235,12 +235,18 @@ protected:
         m_commandList->IASetVertexBuffers(0, 1, &mGeometries["grid"]->VertexBufferView());
         m_commandList->IASetIndexBuffer(&mGeometries["grid"]->IndexBufferView());
         m_commandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        ID3D12DescriptorHeap* descriptorHeaps[] = { mpCbvHeap.Get(), mpSrvHeap.Get() };
-        m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
         m_commandList->SetGraphicsRootSignature(mRootSignature.Get());
-        m_commandList->SetGraphicsRootDescriptorTable(0, mpCbvHeap->GetGPUDescriptorHandleForHeapStart());
-        m_commandList->SetGraphicsRootDescriptorTable(1, mpSrvHeap->GetGPUDescriptorHandleForHeapStart());
+
+        // Only one heap of any type can be set at any time apparently. So we can set a max of two heap types - CBV/SRV/UAV and Samplers.
+        ID3D12DescriptorHeap* descriptorHeaps[] = { mpDescHeap.Get()};
+        m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+        
+        m_commandList->SetGraphicsRootDescriptorTable(0, mpDescHeap->GetGPUDescriptorHandleForHeapStart());
+        
+        CD3DX12_GPU_DESCRIPTOR_HANDLE skyTexDescriptor(mpDescHeap->GetGPUDescriptorHandleForHeapStart());
+        skyTexDescriptor.Offset(1, m_cbvSrvUavDescriptorSize);
+        m_commandList->SetGraphicsRootDescriptorTable(1, skyTexDescriptor);
+
         m_commandList->DrawIndexedInstanced(mGeometries["grid"]->drawArgs["grid"].indexCount, 1, 0, 0, 0);
         m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
         ThrowIfFailed(m_commandList->Close());
@@ -392,26 +398,23 @@ protected:
     void BuildDescriptorsAndViews() {
         // We need one const buffer view just for the MVP matrix.
         D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = {};
-        cbvHeapDesc.NumDescriptors = 1;
+        cbvHeapDesc.NumDescriptors = 2;
         cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&mpCbvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&mpDescHeap)));
+
+        CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mpDescHeap->GetCPUDescriptorHandleForHeapStart());
 
         mSceneConstants = make_unique<UploadBuffer<SceneConstants>>(m_d3dDevice.Get(), 1, true);
         UINT sceneConstBytes = BaseUtil::CalcConstantBufferByteSize(sizeof(SceneConstants));
         D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = { };
         cbvDesc.BufferLocation = mSceneConstants->Resource()->GetGPUVirtualAddress();
         cbvDesc.SizeInBytes = BaseUtil::CalcConstantBufferByteSize(sizeof(SceneConstants));
-        m_d3dDevice->CreateConstantBufferView(&cbvDesc, mpCbvHeap->GetCPUDescriptorHandleForHeapStart());
+        m_d3dDevice->CreateConstantBufferView(&cbvDesc, hDescriptor);
 
-        // Create a heap descriptor for the cube map texture SRV.
-        D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-        srvHeapDesc.NumDescriptors             = 1;
-        srvHeapDesc.Type                       = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        srvHeapDesc.Flags                      = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mpSrvHeap)));
-        
-        CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mpSrvHeap->GetCPUDescriptorHandleForHeapStart());
+
+        // Create a SRV for the sky box cube map in slot 1 of the descriptor heap.
+        hDescriptor.Offset(1, m_cbvSrvUavDescriptorSize);
         auto cubeMapRes = mCubeMapTex->resource_;
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Shader4ComponentMapping         = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -469,8 +472,7 @@ private:
     unordered_map<string, unique_ptr<MeshGeometry>> mGeometries;
     unordered_map<string, ComPtr<ID3DBlob>>         mShaders;
     vector<D3D12_INPUT_ELEMENT_DESC>                mInputLayout;
-    ComPtr<ID3D12DescriptorHeap>                    mpCbvHeap = nullptr;
-    ComPtr<ID3D12DescriptorHeap>                    mpSrvHeap = nullptr;
+    ComPtr<ID3D12DescriptorHeap>                    mpDescHeap = nullptr;
     unique_ptr<UploadBuffer<SceneConstants>>        mSceneConstants = nullptr;
     ComPtr<ID3D12RootSignature>                     mRootSignature = nullptr;
     ComPtr<ID3D12PipelineState>                     mSimplePipeline = nullptr;
