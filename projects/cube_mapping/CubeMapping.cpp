@@ -1,3 +1,11 @@
+/*
+* TODO:
+* - create skybox pipeline
+* - create skybox geometry (sphere)
+* - add shader for skybox rendering using cube map
+* - draw skybox geometry
+*/
+
 #include <unordered_map>
 #include <string>
 #include <memory>
