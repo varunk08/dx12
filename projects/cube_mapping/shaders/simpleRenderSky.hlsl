@@ -28,7 +28,7 @@ struct VertexOut {
 VertexOut SimpleVS(VertexIn vIn) {
     VertexOut vOut;
     vOut.posL = vIn.PosL;
-    vOut.PosH  = mul(float4(vIn.PosL, 1.0f), Mvp.gMvpMatrix);
+    vOut.PosH  = mul(float4(vIn.PosL, 1.0f), Mvp.gMvpMatrix).xyww;
     vOut.Color = vIn.Color;
     return vOut;
 }

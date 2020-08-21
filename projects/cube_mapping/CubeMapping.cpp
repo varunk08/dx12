@@ -1,9 +1,12 @@
 /*
 * TODO:
 * + create skybox pipeline
-* - create skybox geometry (sphere)
-* - add shader for skybox rendering using cube map
-* - draw skybox geometry
+* + create skybox geometry (sphere)
+* + add shader for skybox rendering using cube map
+* + draw skybox geometry
+* + make z/w = 1
+* 
+* - center the sphere on the camera in the shader
 */
 
 #include <unordered_map>
@@ -477,7 +480,7 @@ protected:
     void BuildGeometry() {
         GeometryGenerator generator;
         MeshData grid                  = generator.CreateGrid(20.0f, 20.0f, 40, 40);
-        MeshData sphere                = generator.CreateSphere(1000.0f, 20, 20);
+        MeshData sphere                = generator.CreateSphere(5000.0f, 20, 20);
         UINT gridVertexOffset          = 0;
         UINT gridIndexOffset           = 0;
         SubmeshGeometry gridSubmesh    = {};
