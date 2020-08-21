@@ -334,7 +334,7 @@ protected:
 
         // The camera is inside the sky sphere, so just turn off culling.
         skyPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-
+        skyPsoDesc.RasterizerState.FillMode    = D3D12_FILL_MODE_SOLID;
         // Make sure the depth function is LESS_EQUAL and not just LESS.  
         // Otherwise, the normalized depth values at z = 1 (NDC) will 
         // fail the depth test if the depth buffer was cleared to 1.
@@ -412,10 +412,10 @@ protected:
     void BuildRootSignature() {
 
         CD3DX12_DESCRIPTOR_RANGE cbvTable = {};
-        cbvTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
+        cbvTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0); // b0
 
         CD3DX12_DESCRIPTOR_RANGE texTable = {};
-        texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+        texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // t0
 
         // Param 0 is for CBV and Param 1 is for the cube map texture SRV.
         CD3DX12_ROOT_PARAMETER slotRootParams[2];
@@ -477,7 +477,7 @@ protected:
     void BuildGeometry() {
         GeometryGenerator generator;
         MeshData grid                  = generator.CreateGrid(20.0f, 20.0f, 40, 40);
-        MeshData sphere                = generator.CreateSphere(5.0f, 20, 20);
+        MeshData sphere                = generator.CreateSphere(1000.0f, 20, 20);
         UINT gridVertexOffset          = 0;
         UINT gridIndexOffset           = 0;
         SubmeshGeometry gridSubmesh    = {};
